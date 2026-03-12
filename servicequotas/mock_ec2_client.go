@@ -13,5 +13,6 @@ type mockEC2Client struct {
 	DescribeNetworkInterfacesResponse *ec2.DescribeNetworkInterfacesOutput
 	InstancesFilters                  []*ec2.Filter
 	DescribeInstancesResponse         *ec2.DescribeInstancesOutput
-	DescribeSubnetsResponse           *ec2.DescribeSubnetsOutput
+	DescribeSubnetsResponse          *ec2.DescribeSubnetsOutput
+	DescribeVpcEndpointsResponse     *ec2.DescribeVpcEndpointsOutput
 }

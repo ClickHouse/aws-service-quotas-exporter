@@ -12,7 +12,7 @@ per subnet" as seen in //service_quotas/ec2_limits.go.
 
 # Metrics
 
-There are 7 metrics exposed:
+There are 7 metrics exposed by default, with additional optional metrics available via flags:
 
 1. Rules per security group
 ```
@@ -58,6 +58,26 @@ aws_instances_per_asg_limit_total{region="eu-west-1",resource="asg"} 5
 aws_instances_per_asg_used_total{region="eu-west-1",resource="asg"} 10
 ```
 
+## Optional metrics (--enable-vpc-endpoints)
+
+8. Interface VPC endpoints per VPC (includes Interface + GatewayLoadBalancer types, quota L-29B6F2EB)
+```
+aws_interface_vpc_endpoints_per_vpc_limit_total{region="us-east-1",resource="vpc-00000000000"} 500
+aws_interface_vpc_endpoints_per_vpc_used_total{region="us-east-1",resource="vpc-00000000000"} 157
+```
+
+9. Resource VPC endpoints per VPC (quota L-CA6CC422)
+```
+aws_resource_vpc_endpoints_per_vpc_limit_total{region="us-east-1",resource="vpc-00000000000"} 500
+aws_resource_vpc_endpoints_per_vpc_used_total{region="us-east-1",resource="vpc-00000000000"} 142
+```
+
+10. ServiceNetwork VPC endpoints per VPC (quota L-3B4E38D2)
+```
+aws_service_network_vpc_endpoints_per_vpc_limit_total{region="us-east-1",resource="vpc-00000000000"} 500
+aws_service_network_vpc_endpoints_per_vpc_used_total{region="us-east-1",resource="vpc-00000000000"} 0
+```
+
 # IAM Permissions
 
 The AWS Service Quotas requires permissions for the following actions
@@ -67,6 +87,7 @@ to be able to run:
  * `ec2:DescribeNetworkInterfaces`
  * `ec2:DescribeInstances`
  * `ec2:DescribeSubnets`
+ * `ec2:DescribeVpcEndpoints` (only when `--enable-vpc-endpoints` is used)
  * `servicequotas:ListServiceQuotas`
  * `autoscaling:DescribeAutoScalingGroups`
 
@@ -81,6 +102,7 @@ Example IAM policy
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeInstances",
           "ec2:DescribeSubnets",
+          "ec2:DescribeVpcEndpoints",
           "servicequotas:ListServiceQuotas",
           "autoscaling:DescribeAutoScalingGroups"
       ],
@@ -98,6 +120,7 @@ Example IAM policy
 | -r         | --region           | AWS_REGION  | AWS region                                                                 |
 | -f         | --profile          | AWS_PROFILE | Named AWS profile                                                          |
 | N/A        | --include-aws-tag  | N/A         | The aws resource tags to include as labels for returned metrics            |
+| N/A        | --enable-vpc-endpoints | N/A     | Enable VPC endpoint quota monitoring                                       |
 
 # Building the exporter and running the exporter
 

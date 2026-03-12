@@ -40,8 +40,8 @@ type ServiceQuotasExporter struct {
 }
 
 // NewServiceQuotasExporter creates a new ServiceQuotasExporter
-func NewServiceQuotasExporter(region, profile string, refreshPeriod int, includedAWSTags []string) (*ServiceQuotasExporter, error) {
-	quotasClient, err := servicequotas.NewServiceQuotas(region, profile)
+func NewServiceQuotasExporter(region, profile string, refreshPeriod int, includedAWSTags []string, quotasOpts ...servicequotas.QuotasOptions) (*ServiceQuotasExporter, error) {
+	quotasClient, err := servicequotas.NewServiceQuotas(region, profile, quotasOpts...)
 	if err != nil {
 		return nil, err
 	}

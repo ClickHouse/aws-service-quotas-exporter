@@ -36,7 +36,13 @@ type UsageCheck interface {
 	Usage() ([]QuotaUsage, error)
 }
 
-func newUsageChecks(c client.ConfigProvider, cfgs ...*aws.Config) (map[string]UsageCheck, []UsageCheck) {
+// QuotasOptions configures optional usage checks
+type QuotasOptions struct {
+	// EnableVpcEndpointChecks enables VPC endpoint quota monitoring
+	EnableVpcEndpointChecks bool
+}
+
+func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Config) (map[string]UsageCheck, []UsageCheck) {
 	// all clients that will be used by the usage checks
 	ec2Client := ec2.New(c, cfgs...)
 	autoscalingClient := autoscaling.New(c, cfgs...)
@@ -48,6 +54,12 @@ func newUsageChecks(c client.ConfigProvider, cfgs ...*aws.Config) (map[string]Us
 		"L-E79EC296": &SecurityGroupsPerRegionUsageCheck{ec2Client},
 		"L-34B43A08": &StandardSpotInstanceRequestsUsageCheck{ec2Client},
 		"L-1216C47A": &RunningOnDemandStandardInstancesUsageCheck{ec2Client},
+	}
+
+	if opts.EnableVpcEndpointChecks {
+		serviceQuotasUsageChecks["L-29B6F2EB"] = &InterfaceVpcEndpointsPerVpcUsageCheck{client: ec2Client}
+		serviceQuotasUsageChecks["L-CA6CC422"] = &ResourceVpcEndpointsPerVpcUsageCheck{client: ec2Client}
+		serviceQuotasUsageChecks["L-3B4E38D2"] = &ServiceNetworkVpcEndpointsPerVpcUsageCheck{client: ec2Client}
 	}
 
 	otherUsageChecks := []UsageCheck{
@@ -111,7 +123,7 @@ type QuotasInterface interface {
 // NewServiceQuotas creates a ServiceQuotas for `region` and `profile`
 // or returns an error. Note that the ServiceQuotas will only return
 // usage and quotas for the service quotas with implemented usage checks
-func NewServiceQuotas(region, profile string) (QuotasInterface, error) {
+func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (QuotasInterface, error) {
 	validRegion, isChina := isValidRegion(region)
 	if !validRegion {
 		return nil, fmt.Errorf("%w: failed to create ServiceQuotas", ErrInvalidRegion)
@@ -119,7 +131,7 @@ func NewServiceQuotas(region, profile string) (QuotasInterface, error) {
 
 	opts := session.Options{}
 	if profile != "" {
-		opts = session.Options{Profile: profile}
+		opts = session.Options{Profile: profile, SharedConfigState: session.SharedConfigEnable}
 	}
 
 	awsSession, err := session.NewSessionWithOptions(opts)
@@ -127,8 +139,13 @@ func NewServiceQuotas(region, profile string) (QuotasInterface, error) {
 		return nil, err
 	}
 
+	var qo QuotasOptions
+	if len(quotasOpts) > 0 {
+		qo = quotasOpts[0]
+	}
+
 	quotasService := awsservicequotas.New(awsSession, aws.NewConfig().WithRegion(region))
-	serviceQuotasChecks, otherChecks := newUsageChecks(awsSession, aws.NewConfig().WithRegion(region))
+	serviceQuotasChecks, otherChecks := newUsageChecks(qo, awsSession, aws.NewConfig().WithRegion(region))
 
 	if isChina {
 		logging.Warn("AWS china currently doesn't support service quotas, disabling...")
