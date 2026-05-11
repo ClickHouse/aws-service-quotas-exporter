@@ -78,6 +78,24 @@ aws_service_network_vpc_endpoints_per_vpc_limit_total{region="us-east-1",resourc
 aws_service_network_vpc_endpoints_per_vpc_used_total{region="us-east-1",resource="vpc-00000000000"} 0
 ```
 
+11. VPCs per region (quota L-F678F1CE, requires `--enable-vpcs-per-region`)
+```
+aws_vpcs_per_region_limit_total{region="us-east-1",resource="vpcs_per_region"} 5
+aws_vpcs_per_region_used_total{region="us-east-1",resource="vpcs_per_region"} 3
+```
+
+12. EC2-VPC Elastic IPs per region (quota L-0263D0A3, requires `--enable-eips-per-region`)
+```
+aws_eips_per_region_limit_total{region="us-east-1",resource="eips_per_region"} 5
+aws_eips_per_region_used_total{region="us-east-1",resource="eips_per_region"} 2
+```
+
+13. Network Load Balancers per region (quota L-69A177A2, requires `--enable-nlbs-per-region`)
+```
+aws_nlbs_per_region_limit_total{region="us-east-1",resource="nlbs_per_region"} 50
+aws_nlbs_per_region_used_total{region="us-east-1",resource="nlbs_per_region"} 4
+```
+
 # IAM Permissions
 
 The AWS Service Quotas requires permissions for the following actions
@@ -88,6 +106,9 @@ to be able to run:
  * `ec2:DescribeInstances`
  * `ec2:DescribeSubnets`
  * `ec2:DescribeVpcEndpoints` (only when `--enable-vpc-endpoints` is used)
+ * `ec2:DescribeVpcs` (only when `--enable-vpcs-per-region` is used)
+ * `ec2:DescribeAddresses` (only when `--enable-eips-per-region` is used)
+ * `elasticloadbalancing:DescribeLoadBalancers` (only when `--enable-nlbs-per-region` is used)
  * `servicequotas:ListServiceQuotas`
  * `autoscaling:DescribeAutoScalingGroups`
 
@@ -103,6 +124,9 @@ Example IAM policy
           "ec2:DescribeInstances",
           "ec2:DescribeSubnets",
           "ec2:DescribeVpcEndpoints",
+          "ec2:DescribeVpcs",
+          "ec2:DescribeAddresses",
+          "elasticloadbalancing:DescribeLoadBalancers",
           "servicequotas:ListServiceQuotas",
           "autoscaling:DescribeAutoScalingGroups"
       ],
@@ -121,6 +145,9 @@ Example IAM policy
 | -f         | --profile          | AWS_PROFILE | Named AWS profile                                                          |
 | N/A        | --include-aws-tag  | N/A         | The aws resource tags to include as labels for returned metrics            |
 | N/A        | --enable-vpc-endpoints | N/A     | Enable VPC endpoint quota monitoring                                       |
+| N/A        | --enable-vpcs-per-region | N/A   | Enable VPCs per region quota monitoring                                    |
+| N/A        | --enable-eips-per-region | N/A   | Enable Elastic IPs per region quota monitoring                             |
+| N/A        | --enable-nlbs-per-region | N/A   | Enable Network Load Balancers per region quota monitoring                  |
 
 # Building the exporter and running the exporter
 
