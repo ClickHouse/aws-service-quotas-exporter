@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/elbv2"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	awsservicequotas "github.com/aws/aws-sdk-go/service/servicequotas"
 	"github.com/aws/aws-sdk-go/service/servicequotas/servicequotasiface"
@@ -26,8 +27,12 @@ var (
 	ErrFailedToConvertCidr = errors.New("failed to convert CIDR block from string to int")
 )
 
-func allServices() []string {
-	return []string{"ec2", "vpc"}
+func allServices(opts QuotasOptions) []string {
+	services := []string{"ec2", "vpc"}
+	if opts.EnableNLBsPerRegionCheck {
+		services = append(services, "elasticloadbalancing")
+	}
+	return services
 }
 
 // UsageCheck is an interface for retrieving service quota usage
@@ -40,6 +45,12 @@ type UsageCheck interface {
 type QuotasOptions struct {
 	// EnableVpcEndpointChecks enables VPC endpoint quota monitoring
 	EnableVpcEndpointChecks bool
+	// EnableVpcsPerRegionCheck enables VPCs per region quota monitoring
+	EnableVpcsPerRegionCheck bool
+	// EnableEIPsPerRegionCheck enables Elastic IPs per region quota monitoring
+	EnableEIPsPerRegionCheck bool
+	// EnableNLBsPerRegionCheck enables Network Load Balancers per region quota monitoring
+	EnableNLBsPerRegionCheck bool
 }
 
 func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Config) (map[string]UsageCheck, []UsageCheck) {
@@ -47,6 +58,7 @@ func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Co
 	ec2Client := ec2.New(c, cfgs...)
 	autoscalingClient := autoscaling.New(c, cfgs...)
 	lambdaClient := lambda.New(c, cfgs...)
+	elbv2Client := elbv2.New(c, cfgs...)
 
 	serviceQuotasUsageChecks := map[string]UsageCheck{
 		"L-0EA8095F": &RulesPerSecurityGroupUsageCheck{ec2Client},
@@ -60,6 +72,18 @@ func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Co
 		serviceQuotasUsageChecks["L-29B6F2EB"] = &InterfaceVpcEndpointsPerVpcUsageCheck{client: ec2Client}
 		serviceQuotasUsageChecks["L-CA6CC422"] = &ResourceVpcEndpointsPerVpcUsageCheck{client: ec2Client}
 		serviceQuotasUsageChecks["L-3B4E38D2"] = &ServiceNetworkVpcEndpointsPerVpcUsageCheck{client: ec2Client}
+	}
+
+	if opts.EnableVpcsPerRegionCheck {
+		serviceQuotasUsageChecks["L-F678F1CE"] = &VpcsPerRegionUsageCheck{client: ec2Client}
+	}
+
+	if opts.EnableEIPsPerRegionCheck {
+		serviceQuotasUsageChecks["L-0263D0A3"] = &EIPsPerRegionUsageCheck{client: ec2Client}
+	}
+
+	if opts.EnableNLBsPerRegionCheck {
+		serviceQuotasUsageChecks["L-69A177A2"] = &NLBsPerRegionUsageCheck{client: elbv2Client}
 	}
 
 	otherUsageChecks := []UsageCheck{
@@ -112,6 +136,7 @@ type ServiceQuotas struct {
 	quotasService            servicequotasiface.ServiceQuotasAPI
 	serviceQuotasUsageChecks map[string]UsageCheck
 	otherUsageChecks         []UsageCheck
+	services                 []string
 }
 
 // QuotasInterface is an interface for retrieving AWS service
@@ -158,6 +183,7 @@ func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (Quot
 		serviceQuotasUsageChecks: serviceQuotasChecks,
 		isAwsChina:               isChina,
 		otherUsageChecks:         otherChecks,
+		services:                 allServices(qo),
 	}
 	return quotas, nil
 }
@@ -215,7 +241,7 @@ func (s *ServiceQuotas) QuotasAndUsage() ([]QuotaUsage, error) {
 	allQuotaUsages := []QuotaUsage{}
 
 	if !s.isAwsChina {
-		for _, service := range allServices() {
+		for _, service := range s.services {
 			serviceQuotas, err := s.quotasForService(service)
 			if err != nil {
 				return nil, err

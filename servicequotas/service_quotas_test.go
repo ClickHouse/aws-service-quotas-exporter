@@ -45,7 +45,7 @@ func TestQuotasAndUsageWithError(t *testing.T) {
 		ListServiceQuotasResponse: nil,
 	}
 
-	serviceQuotas := ServiceQuotas{quotasService: mockClient}
+	serviceQuotas := ServiceQuotas{quotasService: mockClient, services: []string{"ec2", "vpc"}}
 	quotasAndUsage, err := serviceQuotas.QuotasAndUsage()
 
 	assert.Error(t, err)
@@ -77,6 +77,7 @@ func TestQuotasAndUsageWithUsageError(t *testing.T) {
 		serviceQuotasUsageChecks: map[string]UsageCheck{
 			"L-1234": usageCheckMock,
 		},
+		services: []string{"ec2", "vpc"},
 	}
 	quotasAndUsage, err := serviceQuotas.QuotasAndUsage()
 
@@ -137,6 +138,7 @@ func TestQuotasAndUsage(t *testing.T) {
 			"L-1234": firstUsageCheckMock,
 			"L-5678": secondUsageCheckMock,
 		},
+		services: []string{"ec2", "vpc"},
 	}
 	actualQuotasAndUsage, err := serviceQuotas.QuotasAndUsage()
 
