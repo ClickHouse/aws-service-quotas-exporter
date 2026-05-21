@@ -28,6 +28,27 @@ var (
 	ErrFailedToConvertCidr = errors.New("failed to convert CIDR block from string to int")
 )
 
+// globalServiceQuotasRegions maps an AWS partition ID to the region from which
+// the Service Quotas API exposes quotas for globally-scoped services (e.g. IAM).
+// Listing quotas for these services from any other region returns an empty result.
+var globalServiceQuotasRegions = map[string]string{
+	endpoints.AwsPartitionID:      "us-east-1",
+	endpoints.AwsUsGovPartitionID: "us-gov-west-1",
+	endpoints.AwsCnPartitionID:    "cn-north-1",
+}
+
+// globalServices is the set of AWS service codes whose quotas must be queried
+// from the partition's global Service Quotas region rather than the caller's
+// configured region.
+var globalServices = map[string]struct{}{
+	"iam": {},
+}
+
+func isGlobalService(service string) bool {
+	_, ok := globalServices[service]
+	return ok
+}
+
 func allServices(opts QuotasOptions) []string {
 	services := []string{"ec2", "vpc"}
 	if opts.EnableNLBsPerRegionCheck {
@@ -151,6 +172,7 @@ type ServiceQuotas struct {
 	region                   string
 	isAwsChina               bool
 	quotasService            servicequotasiface.ServiceQuotasAPI
+	globalQuotasService      servicequotasiface.ServiceQuotasAPI
 	serviceQuotasUsageChecks map[string]UsageCheck
 	otherUsageChecks         []UsageCheck
 	services                 []string
@@ -166,7 +188,7 @@ type QuotasInterface interface {
 // or returns an error. Note that the ServiceQuotas will only return
 // usage and quotas for the service quotas with implemented usage checks
 func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (QuotasInterface, error) {
-	validRegion, isChina := isValidRegion(region)
+	validRegion, isChina, partitionID := isValidRegion(region)
 	if !validRegion {
 		return nil, fmt.Errorf("%w: failed to create ServiceQuotas", ErrInvalidRegion)
 	}
@@ -187,6 +209,10 @@ func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (Quot
 	}
 
 	quotasService := awsservicequotas.New(awsSession, aws.NewConfig().WithRegion(region))
+	globalQuotasService := quotasService
+	if globalRegion, ok := globalServiceQuotasRegions[partitionID]; ok && globalRegion != region {
+		globalQuotasService = awsservicequotas.New(awsSession, aws.NewConfig().WithRegion(globalRegion))
+	}
 	serviceQuotasChecks, otherChecks := newUsageChecks(qo, awsSession, aws.NewConfig().WithRegion(region))
 
 	if isChina {
@@ -197,6 +223,7 @@ func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (Quot
 		session:                  awsSession,
 		region:                   region,
 		quotasService:            quotasService,
+		globalQuotasService:      globalQuotasService,
 		serviceQuotasUsageChecks: serviceQuotasChecks,
 		isAwsChina:               isChina,
 		otherUsageChecks:         otherChecks,
@@ -205,22 +232,27 @@ func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (Quot
 	return quotas, nil
 }
 
-func isValidRegion(region string) (bool, bool) {
+func isValidRegion(region string) (bool, bool, string) {
 	for _, partition := range endpoints.DefaultPartitions() {
 		_, ok := partition.Regions()[region]
 		if ok {
-			return true, partition.ID() == endpoints.AwsCnPartitionID
+			return true, partition.ID() == endpoints.AwsCnPartitionID, partition.ID()
 		}
 	}
-	return false, false
+	return false, false, ""
 }
 
 func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 	serviceQuotaUsages := []QuotaUsage{}
 	var usageErr error
 
+	quotasService := s.quotasService
+	if isGlobalService(service) && s.globalQuotasService != nil {
+		quotasService = s.globalQuotasService
+	}
+
 	params := &awsservicequotas.ListServiceQuotasInput{ServiceCode: aws.String(service)}
-	err := s.quotasService.ListServiceQuotasPages(params,
+	err := quotasService.ListServiceQuotasPages(params,
 		func(page *awsservicequotas.ListServiceQuotasOutput, lastPage bool) bool {
 			if page != nil {
 				for _, quota := range page.Quotas {

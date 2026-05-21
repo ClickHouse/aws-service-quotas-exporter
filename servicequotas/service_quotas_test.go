@@ -285,3 +285,45 @@ func TestNewServiceQuotasWithInvalidRegion(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrInvalidRegion))
 	assert.Nil(t, svcQuotas)
 }
+
+func TestQuotasForGlobalServiceRoutesToGlobalClient(t *testing.T) {
+	regionalClient := &mockServiceQuotasClient{
+		serviceName: "iam",
+		ListServiceQuotasResponse: &awsservicequotas.ListServiceQuotasOutput{
+			Quotas: []*awsservicequotas.ServiceQuota{
+				{QuotaCode: aws.String("L-REGIONAL"), Value: aws.Float64(1)},
+			},
+		},
+	}
+	globalClient := &mockServiceQuotasClient{
+		serviceName: "iam",
+		ListServiceQuotasResponse: &awsservicequotas.ListServiceQuotasOutput{
+			Quotas: []*awsservicequotas.ServiceQuota{
+				{QuotaCode: aws.String("L-GLOBAL"), Value: aws.Float64(2)},
+			},
+		},
+	}
+
+	usageCheck := &UsageCheckMock{
+		usages: []QuotaUsage{
+			{Name: "iam_check", Description: "iam check", Usage: 1},
+		},
+	}
+
+	serviceQuotas := ServiceQuotas{
+		quotasService:       regionalClient,
+		globalQuotasService: globalClient,
+		serviceQuotasUsageChecks: map[string]UsageCheck{
+			"L-GLOBAL": usageCheck,
+		},
+		services: []string{"iam"},
+	}
+	actual, err := serviceQuotas.QuotasAndUsage()
+
+	assert.NoError(t, err)
+	assert.Equal(t, 0, regionalClient.timesCalled, "regional client must not be called for global services")
+	assert.Equal(t, 1, globalClient.timesCalled, "global client must be called for global services")
+	assert.Equal(t, []QuotaUsage{
+		{Name: "iam_check", Description: "iam check", Usage: 1, Quota: 2},
+	}, actual)
+}
