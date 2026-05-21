@@ -96,13 +96,13 @@ aws_nlbs_per_region_limit_total{region="us-east-1",resource="nlbs_per_region"} 5
 aws_nlbs_per_region_used_total{region="us-east-1",resource="nlbs_per_region"} 4
 ```
 
-14. IAM roles per account (quota L-FE177D64, requires `--enable-iam-roles-per-account`). IAM is a global service, so enable this in only one region per account to avoid duplicate metrics.
+14. IAM roles per account (quota L-FE177D64, requires `--enable-iam-roles-per-account`). IAM is a global service, so enable this in only one region per account to avoid duplicate metrics. The exporter itself can run in any region — IAM quotas are fetched from the partition's global Service Quotas region (`us-east-1` for the standard AWS partition).
 ```
 aws_iam_roles_per_account_limit_total{region="us-east-1",resource="iam_roles_per_account"} 1000
 aws_iam_roles_per_account_used_total{region="us-east-1",resource="iam_roles_per_account"} 312
 ```
 
-15. IAM customer managed policies per account (quota L-E95E4862, requires `--enable-iam-policies-per-account`). IAM is a global service, so enable this in only one region per account to avoid duplicate metrics.
+15. IAM customer managed policies per account (quota L-E95E4862, requires `--enable-iam-policies-per-account`). Same global-service caveat as above.
 ```
 aws_iam_policies_per_account_limit_total{region="us-east-1",resource="iam_policies_per_account"} 1500
 aws_iam_policies_per_account_used_total{region="us-east-1",resource="iam_policies_per_account"} 47
