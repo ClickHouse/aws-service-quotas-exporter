@@ -96,6 +96,18 @@ aws_nlbs_per_region_limit_total{region="us-east-1",resource="nlbs_per_region"} 5
 aws_nlbs_per_region_used_total{region="us-east-1",resource="nlbs_per_region"} 4
 ```
 
+14. IAM roles per account (quota L-FE177D64, requires `--enable-iam-roles-per-account`). IAM is a global service, so enable this in only one region per account to avoid duplicate metrics.
+```
+aws_iam_roles_per_account_limit_total{region="us-east-1",resource="iam_roles_per_account"} 1000
+aws_iam_roles_per_account_used_total{region="us-east-1",resource="iam_roles_per_account"} 312
+```
+
+15. IAM customer managed policies per account (quota L-E95E4862, requires `--enable-iam-policies-per-account`). IAM is a global service, so enable this in only one region per account to avoid duplicate metrics.
+```
+aws_iam_policies_per_account_limit_total{region="us-east-1",resource="iam_policies_per_account"} 1500
+aws_iam_policies_per_account_used_total{region="us-east-1",resource="iam_policies_per_account"} 47
+```
+
 # IAM Permissions
 
 The AWS Service Quotas requires permissions for the following actions
@@ -109,6 +121,8 @@ to be able to run:
  * `ec2:DescribeVpcs` (only when `--enable-vpcs-per-region` is used)
  * `ec2:DescribeAddresses` (only when `--enable-eips-per-region` is used)
  * `elasticloadbalancing:DescribeLoadBalancers` (only when `--enable-nlbs-per-region` is used)
+ * `iam:ListRoles` (only when `--enable-iam-roles-per-account` is used)
+ * `iam:ListPolicies` (only when `--enable-iam-policies-per-account` is used)
  * `servicequotas:ListServiceQuotas`
  * `autoscaling:DescribeAutoScalingGroups`
 
@@ -127,6 +141,8 @@ Example IAM policy
           "ec2:DescribeVpcs",
           "ec2:DescribeAddresses",
           "elasticloadbalancing:DescribeLoadBalancers",
+          "iam:ListRoles",
+          "iam:ListPolicies",
           "servicequotas:ListServiceQuotas",
           "autoscaling:DescribeAutoScalingGroups"
       ],
@@ -148,6 +164,8 @@ Example IAM policy
 | N/A        | --enable-vpcs-per-region | N/A   | Enable VPCs per region quota monitoring                                    |
 | N/A        | --enable-eips-per-region | N/A   | Enable Elastic IPs per region quota monitoring                             |
 | N/A        | --enable-nlbs-per-region | N/A   | Enable Network Load Balancers per region quota monitoring                  |
+| N/A        | --enable-iam-roles-per-account | N/A | Enable IAM roles per account quota monitoring                          |
+| N/A        | --enable-iam-policies-per-account | N/A | Enable IAM customer managed policies per account quota monitoring   |
 
 # Building the exporter and running the exporter
 

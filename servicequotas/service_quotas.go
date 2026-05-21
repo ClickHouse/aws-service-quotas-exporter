@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/elbv2"
+	"github.com/aws/aws-sdk-go/service/iam"
 	"github.com/aws/aws-sdk-go/service/lambda"
 	awsservicequotas "github.com/aws/aws-sdk-go/service/servicequotas"
 	"github.com/aws/aws-sdk-go/service/servicequotas/servicequotasiface"
@@ -31,6 +32,9 @@ func allServices(opts QuotasOptions) []string {
 	services := []string{"ec2", "vpc"}
 	if opts.EnableNLBsPerRegionCheck {
 		services = append(services, "elasticloadbalancing")
+	}
+	if opts.EnableIAMRolesPerAccountCheck || opts.EnableIAMPoliciesPerAccountCheck {
+		services = append(services, "iam")
 	}
 	return services
 }
@@ -51,6 +55,10 @@ type QuotasOptions struct {
 	EnableEIPsPerRegionCheck bool
 	// EnableNLBsPerRegionCheck enables Network Load Balancers per region quota monitoring
 	EnableNLBsPerRegionCheck bool
+	// EnableIAMRolesPerAccountCheck enables IAM roles per account quota monitoring
+	EnableIAMRolesPerAccountCheck bool
+	// EnableIAMPoliciesPerAccountCheck enables IAM customer managed policies per account quota monitoring
+	EnableIAMPoliciesPerAccountCheck bool
 }
 
 func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Config) (map[string]UsageCheck, []UsageCheck) {
@@ -59,6 +67,7 @@ func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Co
 	autoscalingClient := autoscaling.New(c, cfgs...)
 	lambdaClient := lambda.New(c, cfgs...)
 	elbv2Client := elbv2.New(c, cfgs...)
+	iamClient := iam.New(c, cfgs...)
 
 	serviceQuotasUsageChecks := map[string]UsageCheck{
 		"L-0EA8095F": &RulesPerSecurityGroupUsageCheck{ec2Client},
@@ -84,6 +93,14 @@ func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Co
 
 	if opts.EnableNLBsPerRegionCheck {
 		serviceQuotasUsageChecks["L-69A177A2"] = &NLBsPerRegionUsageCheck{client: elbv2Client}
+	}
+
+	if opts.EnableIAMRolesPerAccountCheck {
+		serviceQuotasUsageChecks["L-FE177D64"] = &IAMRolesPerAccountUsageCheck{client: iamClient}
+	}
+
+	if opts.EnableIAMPoliciesPerAccountCheck {
+		serviceQuotasUsageChecks["L-E95E4862"] = &IAMPoliciesPerAccountUsageCheck{client: iamClient}
 	}
 
 	otherUsageChecks := []UsageCheck{
