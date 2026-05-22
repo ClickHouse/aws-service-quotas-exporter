@@ -5,6 +5,8 @@ package servicequotas
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -19,6 +21,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/servicequotas/servicequotasiface"
 	logging "github.com/sirupsen/logrus"
 )
+
+var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}-[a-z]+-\d+$`)
 
 // Errors returned from this package
 var (
@@ -238,6 +242,10 @@ func isValidRegion(region string) (bool, bool, string) {
 		if ok {
 			return true, partition.ID() == endpoints.AwsCnPartitionID, partition.ID()
 		}
+	}
+	if !strings.HasPrefix(region, "us-gov-") && !strings.HasPrefix(region, "cn-") &&
+		awsRegionPattern.MatchString(region) {
+		return true, false, endpoints.AwsPartitionID
 	}
 	return false, false, ""
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	awsservicequotas "github.com/aws/aws-sdk-go/service/servicequotas"
 	"github.com/aws/aws-sdk-go/service/servicequotas/servicequotasiface"
 	"github.com/stretchr/testify/assert"
@@ -284,6 +285,36 @@ func TestNewServiceQuotasWithInvalidRegion(t *testing.T) {
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrInvalidRegion))
 	assert.Nil(t, svcQuotas)
+}
+
+func TestIsValidRegion(t *testing.T) {
+	cases := []struct {
+		region          string
+		wantValid       bool
+		wantIsChina     bool
+		wantPartitionID string
+	}{
+		{"us-east-1", true, false, endpoints.AwsPartitionID},
+		{"eu-central-1", true, false, endpoints.AwsPartitionID},
+		{"cn-north-1", true, true, endpoints.AwsCnPartitionID},
+		{"us-gov-west-1", true, false, endpoints.AwsUsGovPartitionID},
+		{"mx-central-1", true, false, endpoints.AwsPartitionID},
+		{"xx-fakeregion-9", true, false, endpoints.AwsPartitionID},
+		{"us-gov-newregion-1", false, false, ""},
+		{"cn-newregion-1", false, false, ""},
+		{"asdasd", false, false, ""},
+		{"", false, false, ""},
+		{"us-east", false, false, ""},
+		{"US-EAST-1", false, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.region, func(t *testing.T) {
+			gotValid, gotChina, gotPartition := isValidRegion(tc.region)
+			assert.Equal(t, tc.wantValid, gotValid, "valid")
+			assert.Equal(t, tc.wantIsChina, gotChina, "isChina")
+			assert.Equal(t, tc.wantPartitionID, gotPartition, "partitionID")
+		})
+	}
 }
 
 func TestQuotasForGlobalServiceRoutesToGlobalClient(t *testing.T) {
