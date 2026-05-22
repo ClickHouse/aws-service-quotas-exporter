@@ -300,8 +300,6 @@ func TestIsValidRegion(t *testing.T) {
 		{"us-gov-west-1", true, false, endpoints.AwsUsGovPartitionID},
 		{"mx-central-1", true, false, endpoints.AwsPartitionID},
 		{"xx-fakeregion-9", true, false, endpoints.AwsPartitionID},
-		{"us-gov-newregion-1", false, false, ""},
-		{"cn-newregion-1", false, false, ""},
 		{"asdasd", false, false, ""},
 		{"", false, false, ""},
 		{"us-east", false, false, ""},

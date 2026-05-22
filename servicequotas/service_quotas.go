@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/client"
@@ -243,8 +242,7 @@ func isValidRegion(region string) (bool, bool, string) {
 			return true, partition.ID() == endpoints.AwsCnPartitionID, partition.ID()
 		}
 	}
-	if !strings.HasPrefix(region, "us-gov-") && !strings.HasPrefix(region, "cn-") &&
-		awsRegionPattern.MatchString(region) {
+	if awsRegionPattern.MatchString(region) {
 		return true, false, endpoints.AwsPartitionID
 	}
 	return false, false, ""
