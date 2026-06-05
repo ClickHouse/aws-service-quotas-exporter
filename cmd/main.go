@@ -2,8 +2,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/jessevdk/go-flags"
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,7 +32,14 @@ var opts struct {
 }
 
 func main() {
-	flags.Parse(&opts)
+	if _, err := flags.Parse(&opts); err != nil {
+		// flags.Parse already prints the error or help text itself.
+		var flagsErr *flags.Error
+		if errors.As(err, &flagsErr) && flagsErr.Type == flags.ErrHelp {
+			os.Exit(0)
+		}
+		os.Exit(1)
+	}
 	quotasOpts := servicequotas.QuotasOptions{
 		EnableVpcEndpointChecks:          opts.EnableVpcEndpoints,
 		EnableVpcsPerRegionCheck:         opts.EnableVpcsPerRegion,
@@ -44,13 +53,17 @@ func main() {
 		log.Fatalf("Failed to create exporter: %s", err)
 	}
 
-	prometheus.Register(quotasExporter)
+	if err := prometheus.Register(quotasExporter); err != nil {
+		log.Fatalf("Failed to register exporter: %s", err)
+	}
 
 	log.Infof("Serving on port: %d", opts.Port)
 	log.Infof("Serving Prometheus metrics on /metrics")
 	http.Handle("/metrics", promhttp.Handler())
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "OK")
+		if _, err := fmt.Fprint(w, "OK"); err != nil {
+			log.Errorf("Failed to write health response: %s", err)
+		}
 	})
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", opts.Port), nil))

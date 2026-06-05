@@ -292,7 +292,6 @@ func isValidRegion(region string) (bool, bool, string) {
 
 func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 	serviceQuotaUsages := []QuotaUsage{}
-	var usageErr error
 
 	quotasService := s.quotasService
 	if isGlobalService(service) && s.globalQuotasService != nil {
@@ -311,9 +310,7 @@ func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 			if check, ok := s.serviceQuotasUsageChecks[*quota.QuotaCode]; ok {
 				quotaUsages, err := check.Usage()
 				if err != nil {
-					usageErr = err
-					// stop paging when an error is encountered
-					return nil, usageErr
+					return nil, err
 				}
 
 				for _, quotaUsage := range quotaUsages {
@@ -322,10 +319,6 @@ func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 				}
 			}
 		}
-	}
-
-	if usageErr != nil {
-		return nil, usageErr
 	}
 
 	return serviceQuotaUsages, nil
@@ -342,9 +335,7 @@ func (s *ServiceQuotas) QuotasAndUsage() ([]QuotaUsage, error) {
 				return nil, err
 			}
 
-			for _, quota := range serviceQuotas {
-				allQuotaUsages = append(allQuotaUsages, quota)
-			}
+			allQuotaUsages = append(allQuotaUsages, serviceQuotas...)
 		}
 	}
 
@@ -354,9 +345,7 @@ func (s *ServiceQuotas) QuotasAndUsage() ([]QuotaUsage, error) {
 			return nil, err
 		}
 
-		for _, quota := range quotas {
-			allQuotaUsages = append(allQuotaUsages, quota)
-		}
+		allQuotaUsages = append(allQuotaUsages, quotas...)
 	}
 
 	return allQuotaUsages, nil
