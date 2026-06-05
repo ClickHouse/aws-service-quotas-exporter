@@ -89,7 +89,7 @@ func (c *RulesPerSecurityGroupUsageCheck) Usage() ([]QuotaUsage, error) {
 
 			for _, rule := range group.IpPermissionsEgress {
 				outboundRules += len(rule.IpRanges)
-				inboundRules += len(rule.UserIdGroupPairs)
+				outboundRules += len(rule.UserIdGroupPairs)
 			}
 
 			outboundUsage := QuotaUsage{

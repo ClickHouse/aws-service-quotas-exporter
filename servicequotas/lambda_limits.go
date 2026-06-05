@@ -25,7 +25,7 @@ type LambdaConcurrentExecutionsLimitCheck struct {
 	client lambdaAPI
 }
 
-// Usage returns the usage and quouta for the lambda concurrent executions and
+// Usage returns the usage and quota for the lambda concurrent executions and
 // lambda code size unzipped limits
 func (c *LambdaConcurrentExecutionsLimitCheck) Usage() ([]QuotaUsage, error) {
 	param := &lambda.GetAccountSettingsInput{}
