@@ -1,5 +1,4 @@
-# golang:1.19.4-alpine3.17
-FROM golang@sha256:f33331e12ca70192c0dbab2d0a74a52e1dd344221507d88aaea605b0219a212f as builder
+FROM golang:1.24.13-alpine3.23 AS builder
 
 RUN ln -s /usr/local/go/bin/go /usr/local/bin/go
 

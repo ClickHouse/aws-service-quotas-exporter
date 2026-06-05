@@ -1,9 +1,15 @@
 package servicequotas
 
 import (
-	"github.com/aws/aws-sdk-go/service/lambda"
-	"github.com/aws/aws-sdk-go/service/lambda/lambdaiface"
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
 )
+
+// lambdaAPI is the subset of the Lambda client used by the Lambda usage check.
+type lambdaAPI interface {
+	GetAccountSettings(context.Context, *lambda.GetAccountSettingsInput, ...func(*lambda.Options)) (*lambda.GetAccountSettingsOutput, error)
+}
 
 var (
 	lambdaConcurrentExecutionsLimitName = "lambda_concurrent_executions_limit"
@@ -16,16 +22,16 @@ var (
 // LambdaConcurrentExecutionsLimitCheck implements the UsageCheck interface
 // for limits for lambda functions
 type LambdaConcurrentExecutionsLimitCheck struct {
-	client lambdaiface.LambdaAPI
+	client lambdaAPI
 }
 
-// Usage returns the usage and quouta for the lambda concurrent executions and
+// Usage returns the usage and quota for the lambda concurrent executions and
 // lambda code size unzipped limits
 func (c *LambdaConcurrentExecutionsLimitCheck) Usage() ([]QuotaUsage, error) {
 	param := &lambda.GetAccountSettingsInput{}
 	var usages []QuotaUsage
 
-	output, err := c.client.GetAccountSettings(param)
+	output, err := c.client.GetAccountSettings(context.TODO(), param)
 	if err != nil {
 		return usages, err
 	}
@@ -34,14 +40,14 @@ func (c *LambdaConcurrentExecutionsLimitCheck) Usage() ([]QuotaUsage, error) {
 		{
 			Name:        lambdaConcurrentExecutionsLimitName,
 			Description: lambdaConcurrentExecutionsLimitDesc,
-			Quota:       float64(*output.AccountLimit.ConcurrentExecutions),
-			Usage:       float64(*output.AccountUsage.FunctionCount),
+			Quota:       float64(output.AccountLimit.ConcurrentExecutions),
+			Usage:       float64(output.AccountUsage.FunctionCount),
 		},
 		{
 			Name:        lambdaCodeSizeUnzippedLimitBytesName,
 			Description: lambdaCodeSizeUnzippedLimitBytesDesc,
-			Quota:       float64(*output.AccountLimit.CodeSizeUnzipped),
-			Usage:       float64(*output.AccountUsage.TotalCodeSize),
+			Quota:       float64(output.AccountLimit.CodeSizeUnzipped),
+			Usage:       float64(output.AccountUsage.TotalCodeSize),
 		},
 	}
 

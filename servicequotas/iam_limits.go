@@ -1,11 +1,11 @@
 package servicequotas
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/iam/iamiface"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 )
 
 const (
@@ -16,26 +16,29 @@ const (
 	iamPoliciesPerAccountDesc = "IAM customer managed policies per account"
 )
 
+// iamAPI is the subset of the IAM client used by the IAM usage checks.
+type iamAPI interface {
+	ListRoles(context.Context, *iam.ListRolesInput, ...func(*iam.Options)) (*iam.ListRolesOutput, error)
+	ListPolicies(context.Context, *iam.ListPoliciesInput, ...func(*iam.Options)) (*iam.ListPoliciesOutput, error)
+}
+
 // IAMRolesPerAccountUsageCheck implements the UsageCheck interface for
 // IAM roles per account (quota L-FE177D64).
 type IAMRolesPerAccountUsageCheck struct {
-	client iamiface.IAMAPI
+	client iamAPI
 }
 
 // Usage returns the number of IAM roles in the account.
 func (c *IAMRolesPerAccountUsageCheck) Usage() ([]QuotaUsage, error) {
 	numRoles := 0
 
-	err := c.client.ListRolesPages(&iam.ListRolesInput{},
-		func(page *iam.ListRolesOutput, lastPage bool) bool {
-			if page != nil {
-				numRoles += len(page.Roles)
-			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+	paginator := iam.NewListRolesPaginator(c.client, &iam.ListRolesInput{})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
+		numRoles += len(page.Roles)
 	}
 
 	return []QuotaUsage{
@@ -50,7 +53,7 @@ func (c *IAMRolesPerAccountUsageCheck) Usage() ([]QuotaUsage, error) {
 // IAMPoliciesPerAccountUsageCheck implements the UsageCheck interface for
 // IAM customer managed policies per account (quota L-E95E4862).
 type IAMPoliciesPerAccountUsageCheck struct {
-	client iamiface.IAMAPI
+	client iamAPI
 }
 
 // Usage returns the number of customer managed IAM policies in the account.
@@ -58,17 +61,14 @@ type IAMPoliciesPerAccountUsageCheck struct {
 func (c *IAMPoliciesPerAccountUsageCheck) Usage() ([]QuotaUsage, error) {
 	numPolicies := 0
 
-	params := &iam.ListPoliciesInput{Scope: aws.String(iam.PolicyScopeTypeLocal)}
-	err := c.client.ListPoliciesPages(params,
-		func(page *iam.ListPoliciesOutput, lastPage bool) bool {
-			if page != nil {
-				numPolicies += len(page.Policies)
-			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+	params := &iam.ListPoliciesInput{Scope: types.PolicyScopeTypeLocal}
+	paginator := iam.NewListPoliciesPaginator(c.client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
+		numPolicies += len(page.Policies)
 	}
 
 	return []QuotaUsage{

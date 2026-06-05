@@ -4,31 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 )
-
-func (m *mockEC2Client) DescribeSecurityGroupsPages(input *ec2.DescribeSecurityGroupsInput, fn func(*ec2.DescribeSecurityGroupsOutput, bool) bool) error {
-	fn(m.DescribeSecurityGroupsResponse, true)
-	return m.err
-}
-
-func (m *mockEC2Client) DescribeNetworkInterfacesPages(input *ec2.DescribeNetworkInterfacesInput, fn func(*ec2.DescribeNetworkInterfacesOutput, bool) bool) error {
-	fn(m.DescribeNetworkInterfacesResponse, true)
-	return m.err
-}
-
-func (m *mockEC2Client) DescribeInstancesPages(input *ec2.DescribeInstancesInput, fn func(*ec2.DescribeInstancesOutput, bool) bool) error {
-	m.InstancesFilters = input.Filters
-	fn(m.DescribeInstancesResponse, true)
-	return m.err
-}
-
-func (m *mockEC2Client) DescribeSubnetsPages(input *ec2.DescribeSubnetsInput, fn func(*ec2.DescribeSubnetsOutput, bool) bool) error {
-	fn(m.DescribeSubnetsResponse, true)
-	return m.err
-}
 
 func TestRulesPerSecurityGroupUsageWithError(t *testing.T) {
 	mockClient := &mockEC2Client{
@@ -47,36 +27,36 @@ func TestRulesPerSecurityGroupUsageWithError(t *testing.T) {
 func TestRulesPerSecurityGroupUsage(t *testing.T) {
 	testCases := []struct {
 		name           string
-		securityGroups []*ec2.SecurityGroup
+		securityGroups []types.SecurityGroup
 		expectedUsage  []QuotaUsage
 	}{
 		{
 			name:           "WithNoSecurityGroups",
-			securityGroups: []*ec2.SecurityGroup{},
+			securityGroups: []types.SecurityGroup{},
 			expectedUsage:  []QuotaUsage{},
 		},
 		{
 			name: "WithSecurityGroups",
-			securityGroups: []*ec2.SecurityGroup{
+			securityGroups: []types.SecurityGroup{
 				{
 					GroupId:             aws.String("somegroupid"),
-					IpPermissions:       []*ec2.IpPermission{},
-					IpPermissionsEgress: []*ec2.IpPermission{},
+					IpPermissions:       []types.IpPermission{},
+					IpPermissionsEgress: []types.IpPermission{},
 				},
 				{
 					GroupId: aws.String("groupwithrules"),
-					IpPermissions: []*ec2.IpPermission{
+					IpPermissions: []types.IpPermission{
 						{
-							FromPort: aws.Int64(0),
-							ToPort:   aws.Int64(0),
-							UserIdGroupPairs: []*ec2.UserIdGroupPair{
+							FromPort: aws.Int32(0),
+							ToPort:   aws.Int32(0),
+							UserIdGroupPairs: []types.UserIdGroupPair{
 								{
 									Description: aws.String("Allow workers to communicate with the control plane."),
 									GroupId:     aws.String("sg-0afb91d177e53ae1d"),
 									UserId:      aws.String("740679791268"),
 								},
 							},
-							IpRanges: []*ec2.IpRange{
+							IpRanges: []types.IpRange{
 								{
 									CidrIp:      aws.String("10.0.0.10/32"),
 									Description: aws.String("Rule A"),
@@ -88,11 +68,11 @@ func TestRulesPerSecurityGroupUsage(t *testing.T) {
 							},
 						},
 					},
-					IpPermissionsEgress: []*ec2.IpPermission{
+					IpPermissionsEgress: []types.IpPermission{
 						{
-							FromPort: aws.Int64(0),
-							ToPort:   aws.Int64(0),
-							IpRanges: []*ec2.IpRange{
+							FromPort: aws.Int32(0),
+							ToPort:   aws.Int32(0),
+							IpRanges: []types.IpRange{
 								{
 									CidrIp:      aws.String("0.0.0.0/0"),
 									Description: aws.String("Rule A"),
@@ -166,20 +146,20 @@ func TestSecurityGroupsPerENIUsageWithError(t *testing.T) {
 func TestSecurityGroupsPerENIUsage(t *testing.T) {
 	testCases := []struct {
 		name              string
-		networkInterfaces []*ec2.NetworkInterface
+		networkInterfaces []types.NetworkInterface
 		expectedUsage     []QuotaUsage
 	}{
 		{
 			name:              "WithNoNetworkInterfaces",
-			networkInterfaces: []*ec2.NetworkInterface{},
+			networkInterfaces: []types.NetworkInterface{},
 			expectedUsage:     []QuotaUsage{},
 		},
 		{
 			name: "WithNetworkInterfaces",
-			networkInterfaces: []*ec2.NetworkInterface{
+			networkInterfaces: []types.NetworkInterface{
 				{
 					NetworkInterfaceId: aws.String("someeni"),
-					Groups: []*ec2.GroupIdentifier{
+					Groups: []types.GroupIdentifier{
 						{
 							GroupId:   aws.String("someid"),
 							GroupName: aws.String("somename"),
@@ -237,12 +217,12 @@ func TestSecurityGroupsPerRegionUsageWithError(t *testing.T) {
 func TestSecurityGroupsPerRegionUsage(t *testing.T) {
 	testCases := []struct {
 		name           string
-		securityGroups []*ec2.SecurityGroup
+		securityGroups []types.SecurityGroup
 		expectedUsage  []QuotaUsage
 	}{
 		{
 			name:           "WithNoSecurityGroups",
-			securityGroups: []*ec2.SecurityGroup{},
+			securityGroups: []types.SecurityGroup{},
 			expectedUsage: []QuotaUsage{
 				{
 					Name:        securityGroupsPerRegionName,
@@ -253,7 +233,7 @@ func TestSecurityGroupsPerRegionUsage(t *testing.T) {
 		},
 		{
 			name: "WithSecurityGroups",
-			securityGroups: []*ec2.SecurityGroup{
+			securityGroups: []types.SecurityGroup{
 				{
 					GroupId: aws.String("somegroupid"),
 				},
@@ -308,24 +288,24 @@ func TestStandardInstancesCPUsFilters(t *testing.T) {
 	testCases := []struct {
 		name            string
 		spotInstances   bool
-		expectedFilters []*ec2.Filter
+		expectedFilters []types.Filter
 	}{
 		{
 			name:          "ForSpotInstances",
 			spotInstances: true,
-			expectedFilters: []*ec2.Filter{
+			expectedFilters: []types.Filter{
 				instanceTypeFilter,
 				instanceStateFilter,
 				{
 					Name:   aws.String("instance-lifecycle"),
-					Values: []*string{aws.String("spot")},
+					Values: []string{"spot"},
 				},
 			},
 		},
 		{
 			name:            "ForOnDemandInstances",
 			spotInstances:   false,
-			expectedFilters: []*ec2.Filter{instanceTypeFilter, instanceStateFilter},
+			expectedFilters: []types.Filter{instanceTypeFilter, instanceStateFilter},
 		},
 	}
 
@@ -346,30 +326,30 @@ func TestStandardInstancesCPUs(t *testing.T) {
 	mockClient := &mockEC2Client{
 		err: nil,
 		DescribeInstancesResponse: &ec2.DescribeInstancesOutput{
-			Reservations: []*ec2.Reservation{
+			Reservations: []types.Reservation{
 				{
-					Instances: []*ec2.Instance{
+					Instances: []types.Instance{
 						{
-							InstanceLifecycle: aws.String("spot"),
-							CpuOptions: &ec2.CpuOptions{
-								CoreCount:      aws.Int64(4),
-								ThreadsPerCore: aws.Int64(2),
+							InstanceLifecycle: types.InstanceLifecycleTypeSpot,
+							CpuOptions: &types.CpuOptions{
+								CoreCount:      aws.Int32(4),
+								ThreadsPerCore: aws.Int32(2),
 							},
 						},
 					},
 				},
 				{
-					Instances: []*ec2.Instance{
+					Instances: []types.Instance{
 						{
-							CpuOptions: &ec2.CpuOptions{
-								CoreCount:      aws.Int64(2),
-								ThreadsPerCore: aws.Int64(2),
+							CpuOptions: &types.CpuOptions{
+								CoreCount:      aws.Int32(2),
+								ThreadsPerCore: aws.Int32(2),
 							},
 						},
 						{
-							CpuOptions: &ec2.CpuOptions{
-								CoreCount:      aws.Int64(4),
-								ThreadsPerCore: aws.Int64(2),
+							CpuOptions: &types.CpuOptions{
+								CoreCount:      aws.Int32(4),
+								ThreadsPerCore: aws.Int32(2),
 							},
 						},
 					},
@@ -400,10 +380,10 @@ func TestAvailableIpsPerSubnetUsageWithError(t *testing.T) {
 func TestAvailableIpsPerSubnetUsageWithInvalidCidrConversion(t *testing.T) {
 	mockClient := &mockEC2Client{
 		DescribeSubnetsResponse: &ec2.DescribeSubnetsOutput{
-			Subnets: []*ec2.Subnet{
+			Subnets: []types.Subnet{
 				{
 					AvailabilityZone:        aws.String("eu-west-1"),
-					AvailableIpAddressCount: aws.Int64(4096),
+					AvailableIpAddressCount: aws.Int32(4096),
 					CidrBlock:               aws.String("invalid-cidr"),
 					SubnetId:                aws.String("subnet-id"),
 				},
@@ -421,20 +401,20 @@ func TestAvailableIpsPerSubnetUsageWithInvalidCidrConversion(t *testing.T) {
 func TestAvailableIpsPerSubnetUsage(t *testing.T) {
 	testCases := []struct {
 		name          string
-		subnets       []*ec2.Subnet
+		subnets       []types.Subnet
 		expectedUsage []QuotaUsage
 	}{
 		{
 			name:          "WithNoSubnets",
-			subnets:       []*ec2.Subnet{},
+			subnets:       []types.Subnet{},
 			expectedUsage: []QuotaUsage{},
 		},
 		{
 			name: "WithSingleSubnet",
-			subnets: []*ec2.Subnet{
+			subnets: []types.Subnet{
 				{
 					AvailabilityZone:        aws.String("eu-west-1"),
-					AvailableIpAddressCount: aws.Int64(4096),
+					AvailableIpAddressCount: aws.Int32(4096),
 					CidrBlock:               aws.String("100.10.10.0/20"),
 					SubnetId:                aws.String("subnet-id"),
 				},
@@ -451,28 +431,28 @@ func TestAvailableIpsPerSubnetUsage(t *testing.T) {
 		},
 		{
 			name: "WithMultipleSubnets",
-			subnets: []*ec2.Subnet{
+			subnets: []types.Subnet{
 				{
 					AvailabilityZone:        aws.String("eu-west-1"),
-					AvailableIpAddressCount: aws.Int64(4096),
+					AvailableIpAddressCount: aws.Int32(4096),
 					CidrBlock:               aws.String("100.10.10.0/20"),
 					SubnetId:                aws.String("subnet-id-1"),
 				},
 				{
 					AvailabilityZone:        aws.String("eu-west-1"),
-					AvailableIpAddressCount: aws.Int64(0),
+					AvailableIpAddressCount: aws.Int32(0),
 					CidrBlock:               aws.String("100.10.10.0/21"),
 					SubnetId:                aws.String("subnet-id-2"),
 				},
 				{
 					AvailabilityZone:        aws.String("eu-west-1"),
-					AvailableIpAddressCount: aws.Int64(100),
+					AvailableIpAddressCount: aws.Int32(100),
 					CidrBlock:               aws.String("100.10.10.0/21"),
 					SubnetId:                aws.String("subnet-id-2"),
 				},
 				{
 					AvailabilityZone:        aws.String("eu-west-1"),
-					AvailableIpAddressCount: aws.Int64(1024),
+					AvailableIpAddressCount: aws.Int32(1024),
 					CidrBlock:               aws.String("100.10.10.0/22"),
 					SubnetId:                aws.String("subnet-id-3"),
 				},

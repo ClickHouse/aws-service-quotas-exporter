@@ -1,10 +1,11 @@
 package servicequotas
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/service/autoscaling"
-	"github.com/aws/aws-sdk-go/service/autoscaling/autoscalingiface"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 )
 
 const (
@@ -12,10 +13,16 @@ const (
 	numInstancesPerASGDescription = "instances per ASG"
 )
 
+// autoscalingAPI is the subset of the Auto Scaling client used by the ASG
+// usage check.
+type autoscalingAPI interface {
+	DescribeAutoScalingGroups(context.Context, *autoscaling.DescribeAutoScalingGroupsInput, ...func(*autoscaling.Options)) (*autoscaling.DescribeAutoScalingGroupsOutput, error)
+}
+
 // ASGUsageCheck implements the UsageCheckInterface for VMs per
 // autoscaling group
 type ASGUsageCheck struct {
-	client autoscalingiface.AutoScalingAPI
+	client autoscalingAPI
 }
 
 // Usage returns usage per auto scaling group - the maximum number of
@@ -25,39 +32,37 @@ func (c *ASGUsageCheck) Usage() ([]QuotaUsage, error) {
 	quotaUsages := []QuotaUsage{}
 
 	params := &autoscaling.DescribeAutoScalingGroupsInput{}
-	err := c.client.DescribeAutoScalingGroupsPages(params,
-		func(page *autoscaling.DescribeAutoScalingGroupsOutput, lastPage bool) bool {
-			if page != nil {
-				for _, asg := range page.AutoScalingGroups {
-					numRunningInstances := 0
-					for _, instance := range asg.Instances {
-						if isRunning(instance) {
-							numRunningInstances++
-						}
-					}
+	paginator := autoscaling.NewDescribeAutoScalingGroupsPaginator(c.client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
 
-					quotaUsage := QuotaUsage{
-						Name:         numInstancesPerASGName,
-						ResourceName: asg.AutoScalingGroupName,
-						Description:  numInstancesPerASGDescription,
-						Usage:        float64(numRunningInstances),
-						Quota:        float64(*asg.MaxSize),
-						Tags:         autoscalingTagsToQuotaUsageTags(asg.Tags),
-					}
-					quotaUsages = append(quotaUsages, quotaUsage)
+		for _, asg := range page.AutoScalingGroups {
+			numRunningInstances := 0
+			for _, instance := range asg.Instances {
+				if isRunning(instance) {
+					numRunningInstances++
 				}
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+
+			quotaUsage := QuotaUsage{
+				Name:         numInstancesPerASGName,
+				ResourceName: asg.AutoScalingGroupName,
+				Description:  numInstancesPerASGDescription,
+				Usage:        float64(numRunningInstances),
+				Quota:        float64(*asg.MaxSize),
+				Tags:         autoscalingTagsToQuotaUsageTags(asg.Tags),
+			}
+			quotaUsages = append(quotaUsages, quotaUsage)
+		}
 	}
 
 	return quotaUsages, nil
 }
 
-func isRunning(instance *autoscaling.Instance) bool {
+func isRunning(instance types.Instance) bool {
 	notRunningStates := map[string]bool{
 		"Terminating":         true,
 		"Terminating:Wait":    true,
@@ -67,11 +72,11 @@ func isRunning(instance *autoscaling.Instance) bool {
 		"Detached":            true,
 	}
 
-	_, isNotRunning := notRunningStates[*instance.LifecycleState]
+	_, isNotRunning := notRunningStates[string(instance.LifecycleState)]
 	return !isNotRunning
 }
 
-func autoscalingTagsToQuotaUsageTags(tags []*autoscaling.TagDescription) map[string]string {
+func autoscalingTagsToQuotaUsageTags(tags []types.TagDescription) map[string]string {
 	length := len(tags)
 	if length == 0 {
 		return nil

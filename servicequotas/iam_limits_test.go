@@ -4,8 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/iam"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,12 +27,12 @@ func TestIAMRolesPerAccountUsageWithError(t *testing.T) {
 func TestIAMRolesPerAccountUsage(t *testing.T) {
 	testCases := []struct {
 		name          string
-		roles         []*iam.Role
+		roles         []types.Role
 		expectedUsage []QuotaUsage
 	}{
 		{
 			name:  "WithNoRoles",
-			roles: []*iam.Role{},
+			roles: []types.Role{},
 			expectedUsage: []QuotaUsage{
 				{
 					Name:        iamRolesPerAccountName,
@@ -42,7 +43,7 @@ func TestIAMRolesPerAccountUsage(t *testing.T) {
 		},
 		{
 			name: "WithMultipleRoles",
-			roles: []*iam.Role{
+			roles: []types.Role{
 				{RoleName: aws.String("role-a")},
 				{RoleName: aws.String("role-b")},
 				{RoleName: aws.String("role-c")},
@@ -92,12 +93,12 @@ func TestIAMPoliciesPerAccountUsageWithError(t *testing.T) {
 func TestIAMPoliciesPerAccountUsage(t *testing.T) {
 	testCases := []struct {
 		name          string
-		policies      []*iam.Policy
+		policies      []types.Policy
 		expectedUsage []QuotaUsage
 	}{
 		{
 			name:     "WithNoPolicies",
-			policies: []*iam.Policy{},
+			policies: []types.Policy{},
 			expectedUsage: []QuotaUsage{
 				{
 					Name:        iamPoliciesPerAccountName,
@@ -108,7 +109,7 @@ func TestIAMPoliciesPerAccountUsage(t *testing.T) {
 		},
 		{
 			name: "WithMultiplePolicies",
-			policies: []*iam.Policy{
+			policies: []types.Policy{
 				{PolicyName: aws.String("policy-a")},
 				{PolicyName: aws.String("policy-b")},
 			},
@@ -136,7 +137,7 @@ func TestIAMPoliciesPerAccountUsage(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedUsage, usage)
-			assert.Equal(t, iam.PolicyScopeTypeLocal, aws.StringValue(mockClient.ListPoliciesScopeInput))
+			assert.Equal(t, types.PolicyScopeTypeLocal, mockClient.ListPoliciesScopeInput)
 		})
 	}
 }

@@ -1,28 +1,28 @@
 package servicequotas
 
 import (
+	"context"
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/service/lambda"
-	"github.com/aws/aws-sdk-go/service/lambda/lambdaiface"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/stretchr/testify/assert"
 )
 
 type mockedLambdaClient struct {
-	lambdaiface.LambdaAPI
 	Output *lambda.GetAccountSettingsOutput
 	Err    error
 }
 
-func (m *mockedLambdaClient) GetAccountSettings(input *lambda.GetAccountSettingsInput) (*lambda.GetAccountSettingsOutput, error) {
+func (m *mockedLambdaClient) GetAccountSettings(_ context.Context, _ *lambda.GetAccountSettingsInput, _ ...func(*lambda.Options)) (*lambda.GetAccountSettingsOutput, error) {
 	return m.Output, m.Err
 }
 
 func TestLambdaConcurrentExecutionsLimitCheck_Usage(t *testing.T) {
 	tests := []struct {
 		name          string
-		client        lambdaiface.LambdaAPI
+		client        lambdaAPI
 		output        *lambda.GetAccountSettingsOutput
 		err           error
 		expectedUsage []QuotaUsage
@@ -32,14 +32,14 @@ func TestLambdaConcurrentExecutionsLimitCheck_Usage(t *testing.T) {
 			name: "success",
 			client: &mockedLambdaClient{
 				Output: &lambda.GetAccountSettingsOutput{
-					AccountLimit: &lambda.AccountLimit{
-						ConcurrentExecutions: int64p(100),
-						CodeSizeUnzipped:     int64p(1000000),
-						CodeSizeZipped:       int64p(500000),
+					AccountLimit: &types.AccountLimit{
+						ConcurrentExecutions: 100,
+						CodeSizeUnzipped:     1000000,
+						CodeSizeZipped:       500000,
 					},
-					AccountUsage: &lambda.AccountUsage{
-						FunctionCount: int64p(50),
-						TotalCodeSize: int64p(500000),
+					AccountUsage: &types.AccountUsage{
+						FunctionCount: 50,
+						TotalCodeSize: 500000,
 					},
 				},
 				Err: nil,
@@ -83,8 +83,4 @@ func TestLambdaConcurrentExecutionsLimitCheck_Usage(t *testing.T) {
 			assert.Equal(t, test.expectedUsage, usages)
 		})
 	}
-}
-
-func int64p(i int64) *int64 {
-	return &i
 }

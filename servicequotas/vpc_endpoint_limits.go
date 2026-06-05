@@ -1,10 +1,11 @@
 package servicequotas
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 const (
@@ -23,29 +24,27 @@ const (
 )
 
 // vpcEndpointsByVpcAndType counts VPC endpoints grouped by VPC ID and type.
-func vpcEndpointsByVpcAndType(client ec2iface.EC2API) (map[string]map[string]int, error) {
+func vpcEndpointsByVpcAndType(client ec2API) (map[string]map[string]int, error) {
 	// map[vpcId]map[endpointType]count
 	counts := make(map[string]map[string]int)
 
 	params := &ec2.DescribeVpcEndpointsInput{}
-	err := client.DescribeVpcEndpointsPages(params,
-		func(page *ec2.DescribeVpcEndpointsOutput, lastPage bool) bool {
-			if page != nil {
-				for _, endpoint := range page.VpcEndpoints {
-					vpcID := *endpoint.VpcId
-					endpointType := *endpoint.VpcEndpointType
+	paginator := ec2.NewDescribeVpcEndpointsPaginator(client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
 
-					if _, ok := counts[vpcID]; !ok {
-						counts[vpcID] = make(map[string]int)
-					}
-					counts[vpcID][endpointType]++
-				}
+		for _, endpoint := range page.VpcEndpoints {
+			vpcID := *endpoint.VpcId
+			endpointType := string(endpoint.VpcEndpointType)
+
+			if _, ok := counts[vpcID]; !ok {
+				counts[vpcID] = make(map[string]int)
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+			counts[vpcID][endpointType]++
+		}
 	}
 
 	return counts, nil
@@ -54,7 +53,7 @@ func vpcEndpointsByVpcAndType(client ec2iface.EC2API) (map[string]map[string]int
 // InterfaceVpcEndpointsPerVpcUsageCheck implements the UsageCheck interface
 // for Interface and GatewayLoadBalancer VPC endpoints per VPC (quota L-29B6F2EB).
 type InterfaceVpcEndpointsPerVpcUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns the usage of Interface + GatewayLoadBalancer VPC endpoints per VPC.
@@ -66,7 +65,7 @@ func (c *InterfaceVpcEndpointsPerVpcUsageCheck) Usage() ([]QuotaUsage, error) {
 
 	var usages []QuotaUsage
 	for vpcID, typeCounts := range counts {
-		count := typeCounts[ec2.VpcEndpointTypeInterface] + typeCounts[ec2.VpcEndpointTypeGatewayLoadBalancer]
+		count := typeCounts[string(types.VpcEndpointTypeInterface)] + typeCounts[string(types.VpcEndpointTypeGatewayLoadBalancer)]
 		if count > 0 {
 			id := vpcID
 			usages = append(usages, QuotaUsage{
@@ -84,7 +83,7 @@ func (c *InterfaceVpcEndpointsPerVpcUsageCheck) Usage() ([]QuotaUsage, error) {
 // ResourceVpcEndpointsPerVpcUsageCheck implements the UsageCheck interface
 // for Resource VPC endpoints per VPC (quota L-CA6CC422).
 type ResourceVpcEndpointsPerVpcUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns the usage of Resource VPC endpoints per VPC.
@@ -114,7 +113,7 @@ func (c *ResourceVpcEndpointsPerVpcUsageCheck) Usage() ([]QuotaUsage, error) {
 // ServiceNetworkVpcEndpointsPerVpcUsageCheck implements the UsageCheck interface
 // for ServiceNetwork VPC endpoints per VPC (quota L-3B4E38D2).
 type ServiceNetworkVpcEndpointsPerVpcUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns the usage of ServiceNetwork VPC endpoints per VPC.

@@ -3,25 +3,38 @@
 package servicequotas
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/client"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/autoscaling"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/elbv2"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/lambda"
-	awsservicequotas "github.com/aws/aws-sdk-go/service/servicequotas"
-	"github.com/aws/aws-sdk-go/service/servicequotas/servicequotasiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	awsservicequotas "github.com/aws/aws-sdk-go-v2/service/servicequotas"
 	logging "github.com/sirupsen/logrus"
 )
 
-var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}-[a-z]+-\d+$`)
+// AWS partition IDs. The aws-sdk-go-v2 SDK no longer ships the partition table
+// that v1 exposed via the endpoints package, so we keep the identifiers we rely
+// on as local constants.
+const (
+	awsPartitionID      = "aws"
+	awsCnPartitionID    = "aws-cn"
+	awsUsGovPartitionID = "aws-us-gov"
+	awsIsoPartitionID   = "aws-iso"
+	awsIsoBPartitionID  = "aws-iso-b"
+)
+
+// awsRegionPattern matches AWS region names. It accepts the standard
+// `<geo>-<area>-<number>` form as well as multi-segment regions such as
+// `us-gov-west-1`.
+var awsRegionPattern = regexp.MustCompile(`^[a-z]{2}-([a-z]+-)+\d+$`)
 
 // Errors returned from this package
 var (
@@ -35,9 +48,11 @@ var (
 // the Service Quotas API exposes quotas for globally-scoped services (e.g. IAM).
 // Listing quotas for these services from any other region returns an empty result.
 var globalServiceQuotasRegions = map[string]string{
-	endpoints.AwsPartitionID:      "us-east-1",
-	endpoints.AwsUsGovPartitionID: "us-gov-west-1",
-	endpoints.AwsCnPartitionID:    "cn-north-1",
+	awsPartitionID:      "us-east-1",
+	awsUsGovPartitionID: "us-gov-west-1",
+	awsCnPartitionID:    "cn-north-1",
+	awsIsoPartitionID:   "us-iso-east-1",
+	awsIsoBPartitionID:  "us-isob-east-1",
 }
 
 // globalServices is the set of AWS service codes whose quotas must be queried
@@ -85,13 +100,13 @@ type QuotasOptions struct {
 	EnableIAMPoliciesPerAccountCheck bool
 }
 
-func newUsageChecks(opts QuotasOptions, c client.ConfigProvider, cfgs ...*aws.Config) (map[string]UsageCheck, []UsageCheck) {
+func newUsageChecks(opts QuotasOptions, cfg aws.Config) (map[string]UsageCheck, []UsageCheck) {
 	// all clients that will be used by the usage checks
-	ec2Client := ec2.New(c, cfgs...)
-	autoscalingClient := autoscaling.New(c, cfgs...)
-	lambdaClient := lambda.New(c, cfgs...)
-	elbv2Client := elbv2.New(c, cfgs...)
-	iamClient := iam.New(c, cfgs...)
+	ec2Client := ec2.NewFromConfig(cfg)
+	autoscalingClient := autoscaling.NewFromConfig(cfg)
+	lambdaClient := lambda.NewFromConfig(cfg)
+	elbv2Client := elbv2.NewFromConfig(cfg)
+	iamClient := iam.NewFromConfig(cfg)
 
 	serviceQuotasUsageChecks := map[string]UsageCheck{
 		"L-0EA8095F": &RulesPerSecurityGroupUsageCheck{ec2Client},
@@ -168,14 +183,20 @@ func (q QuotaUsage) Identifier() string {
 	return q.Name
 }
 
+// serviceQuotasAPI is the subset of the Service Quotas client used by this
+// package. It is satisfied by *servicequotas.Client and by the paginator's
+// ListServiceQuotasAPIClient interface.
+type serviceQuotasAPI interface {
+	ListServiceQuotas(context.Context, *awsservicequotas.ListServiceQuotasInput, ...func(*awsservicequotas.Options)) (*awsservicequotas.ListServiceQuotasOutput, error)
+}
+
 // ServiceQuotas is an implementation for retrieving service quotas
 // and their limits
 type ServiceQuotas struct {
-	session                  *session.Session
 	region                   string
 	isAwsChina               bool
-	quotasService            servicequotasiface.ServiceQuotasAPI
-	globalQuotasService      servicequotasiface.ServiceQuotasAPI
+	quotasService            serviceQuotasAPI
+	globalQuotasService      serviceQuotasAPI
 	serviceQuotasUsageChecks map[string]UsageCheck
 	otherUsageChecks         []UsageCheck
 	services                 []string
@@ -196,12 +217,19 @@ func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (Quot
 		return nil, fmt.Errorf("%w: failed to create ServiceQuotas", ErrInvalidRegion)
 	}
 
-	opts := session.Options{}
+	ctx := context.TODO()
+	loadOpts := []func(*config.LoadOptions) error{
+		config.WithRegion(region),
+		// The Service Quotas API has a low request rate limit and this
+		// exporter calls ListServiceQuotas once per service, so raise the
+		// retry attempts to let the SDK back off through throttling.
+		config.WithRetryMaxAttempts(10),
+	}
 	if profile != "" {
-		opts = session.Options{Profile: profile, SharedConfigState: session.SharedConfigEnable}
+		loadOpts = append(loadOpts, config.WithSharedConfigProfile(profile))
 	}
 
-	awsSession, err := session.NewSessionWithOptions(opts)
+	cfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,19 +239,20 @@ func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (Quot
 		qo = quotasOpts[0]
 	}
 
-	quotasService := awsservicequotas.New(awsSession, aws.NewConfig().WithRegion(region))
+	var quotasService serviceQuotasAPI = awsservicequotas.NewFromConfig(cfg)
 	globalQuotasService := quotasService
 	if globalRegion, ok := globalServiceQuotasRegions[partitionID]; ok && globalRegion != region {
-		globalQuotasService = awsservicequotas.New(awsSession, aws.NewConfig().WithRegion(globalRegion))
+		globalQuotasService = awsservicequotas.NewFromConfig(cfg, func(o *awsservicequotas.Options) {
+			o.Region = globalRegion
+		})
 	}
-	serviceQuotasChecks, otherChecks := newUsageChecks(qo, awsSession, aws.NewConfig().WithRegion(region))
+	serviceQuotasChecks, otherChecks := newUsageChecks(qo, cfg)
 
 	if isChina {
 		logging.Warn("AWS china currently doesn't support service quotas, disabling...")
 	}
 
 	quotas := &ServiceQuotas{
-		session:                  awsSession,
 		region:                   region,
 		quotasService:            quotasService,
 		globalQuotasService:      globalQuotasService,
@@ -235,17 +264,30 @@ func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (Quot
 	return quotas, nil
 }
 
+// partitionForRegion derives the AWS partition ID from a region name based on
+// its prefix. aws-sdk-go-v2 does not expose the v1 partition table, but the
+// partition can be determined unambiguously from the region prefix.
+func partitionForRegion(region string) string {
+	switch {
+	case strings.HasPrefix(region, "cn-"):
+		return awsCnPartitionID
+	case strings.HasPrefix(region, "us-gov-"):
+		return awsUsGovPartitionID
+	case strings.HasPrefix(region, "us-isob-"):
+		return awsIsoBPartitionID
+	case strings.HasPrefix(region, "us-iso-"):
+		return awsIsoPartitionID
+	default:
+		return awsPartitionID
+	}
+}
+
 func isValidRegion(region string) (bool, bool, string) {
-	for _, partition := range endpoints.DefaultPartitions() {
-		_, ok := partition.Regions()[region]
-		if ok {
-			return true, partition.ID() == endpoints.AwsCnPartitionID, partition.ID()
-		}
+	if !awsRegionPattern.MatchString(region) {
+		return false, false, ""
 	}
-	if awsRegionPattern.MatchString(region) {
-		return true, false, endpoints.AwsPartitionID
-	}
-	return false, false, ""
+	partitionID := partitionForRegion(region)
+	return true, partitionID == awsCnPartitionID, partitionID
 }
 
 func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
@@ -258,30 +300,28 @@ func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 	}
 
 	params := &awsservicequotas.ListServiceQuotasInput{ServiceCode: aws.String(service)}
-	err := quotasService.ListServiceQuotasPages(params,
-		func(page *awsservicequotas.ListServiceQuotasOutput, lastPage bool) bool {
-			if page != nil {
-				for _, quota := range page.Quotas {
-					if check, ok := s.serviceQuotasUsageChecks[*quota.QuotaCode]; ok {
-						quotaUsages, err := check.Usage()
-						if err != nil {
-							usageErr = err
-							// stop paging when an error is encountered
-							return true
-						}
+	paginator := awsservicequotas.NewListServiceQuotasPaginator(quotasService, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToListQuotas, err)
+		}
 
-						for _, quotaUsage := range quotaUsages {
-							quotaUsage.Quota = *quota.Value
-							serviceQuotaUsages = append(serviceQuotaUsages, quotaUsage)
-						}
-					}
+		for _, quota := range page.Quotas {
+			if check, ok := s.serviceQuotasUsageChecks[*quota.QuotaCode]; ok {
+				quotaUsages, err := check.Usage()
+				if err != nil {
+					usageErr = err
+					// stop paging when an error is encountered
+					return nil, usageErr
+				}
+
+				for _, quotaUsage := range quotaUsages {
+					quotaUsage.Quota = *quota.Value
+					serviceQuotaUsages = append(serviceQuotaUsages, quotaUsage)
 				}
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToListQuotas, err)
+		}
 	}
 
 	if usageErr != nil {

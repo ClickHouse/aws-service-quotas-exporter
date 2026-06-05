@@ -4,15 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/autoscaling"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	"github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/stretchr/testify/assert"
 )
-
-func (m *mockAutoScalingClient) DescribeAutoScalingGroupsPages(input *autoscaling.DescribeAutoScalingGroupsInput, fn func(*autoscaling.DescribeAutoScalingGroupsOutput, bool) bool) error {
-	fn(m.DescribeAutoScalingGroupsResponse, true)
-	return m.err
-}
 
 func TestASGUsageCheckWithError(t *testing.T) {
 	mockClient := &mockAutoScalingClient{
@@ -32,34 +28,34 @@ func TestASGUsageCheck(t *testing.T) {
 	mockClient := &mockAutoScalingClient{
 		err: nil,
 		DescribeAutoScalingGroupsResponse: &autoscaling.DescribeAutoScalingGroupsOutput{
-			AutoScalingGroups: []*autoscaling.Group{
+			AutoScalingGroups: []types.AutoScalingGroup{
 				{
 					AutoScalingGroupName: aws.String("asg1"),
-					Instances: []*autoscaling.Instance{
-						{LifecycleState: aws.String("Terminating")},
-						{LifecycleState: aws.String("Terminating:Wait")},
-						{LifecycleState: aws.String("Terminating:Proceed")},
-						{LifecycleState: aws.String("Terminated")},
-						{LifecycleState: aws.String("Detaching")},
-						{LifecycleState: aws.String("Detached")},
-						{LifecycleState: aws.String("InService")},
-						{LifecycleState: aws.String("Pending")},
+					Instances: []types.Instance{
+						{LifecycleState: types.LifecycleState("Terminating")},
+						{LifecycleState: types.LifecycleState("Terminating:Wait")},
+						{LifecycleState: types.LifecycleState("Terminating:Proceed")},
+						{LifecycleState: types.LifecycleState("Terminated")},
+						{LifecycleState: types.LifecycleState("Detaching")},
+						{LifecycleState: types.LifecycleState("Detached")},
+						{LifecycleState: types.LifecycleState("InService")},
+						{LifecycleState: types.LifecycleState("Pending")},
 					},
-					MaxSize: aws.Int64(7),
+					MaxSize: aws.Int32(7),
 				},
 				{
 					AutoScalingGroupName: aws.String("asg2"),
-					Instances:            []*autoscaling.Instance{},
-					MaxSize:              aws.Int64(3),
+					Instances:            []types.Instance{},
+					MaxSize:              aws.Int32(3),
 				},
 				{
 					AutoScalingGroupName: aws.String("asg3"),
-					Instances: []*autoscaling.Instance{
-						{LifecycleState: aws.String("InService")},
-						{LifecycleState: aws.String("InService")},
-						{LifecycleState: aws.String("Pending")},
+					Instances: []types.Instance{
+						{LifecycleState: types.LifecycleState("InService")},
+						{LifecycleState: types.LifecycleState("InService")},
+						{LifecycleState: types.LifecycleState("Pending")},
 					},
-					MaxSize: aws.Int64(10),
+					MaxSize: aws.Int32(10),
 				},
 			},
 		},
