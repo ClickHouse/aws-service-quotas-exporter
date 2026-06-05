@@ -27,6 +27,8 @@ const (
 	awsPartitionID      = "aws"
 	awsCnPartitionID    = "aws-cn"
 	awsUsGovPartitionID = "aws-us-gov"
+	awsIsoPartitionID   = "aws-iso"
+	awsIsoBPartitionID  = "aws-iso-b"
 )
 
 // awsRegionPattern matches AWS region names. It accepts the standard
@@ -49,6 +51,8 @@ var globalServiceQuotasRegions = map[string]string{
 	awsPartitionID:      "us-east-1",
 	awsUsGovPartitionID: "us-gov-west-1",
 	awsCnPartitionID:    "cn-north-1",
+	awsIsoPartitionID:   "us-iso-east-1",
+	awsIsoBPartitionID:  "us-isob-east-1",
 }
 
 // globalServices is the set of AWS service codes whose quotas must be queried
@@ -269,6 +273,10 @@ func partitionForRegion(region string) string {
 		return awsCnPartitionID
 	case strings.HasPrefix(region, "us-gov-"):
 		return awsUsGovPartitionID
+	case strings.HasPrefix(region, "us-isob-"):
+		return awsIsoBPartitionID
+	case strings.HasPrefix(region, "us-iso-"):
+		return awsIsoPartitionID
 	default:
 		return awsPartitionID
 	}
