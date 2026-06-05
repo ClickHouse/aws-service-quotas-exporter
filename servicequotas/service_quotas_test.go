@@ -1,34 +1,33 @@
 package servicequotas
 
 import (
+	"context"
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
-	awsservicequotas "github.com/aws/aws-sdk-go/service/servicequotas"
-	"github.com/aws/aws-sdk-go/service/servicequotas/servicequotasiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsservicequotas "github.com/aws/aws-sdk-go-v2/service/servicequotas"
+	"github.com/aws/aws-sdk-go-v2/service/servicequotas/types"
 	"github.com/stretchr/testify/assert"
 )
 
 type mockServiceQuotasClient struct {
-	servicequotasiface.ServiceQuotasAPI
-
 	err                       error
 	serviceName               string
 	ListServiceQuotasResponse *awsservicequotas.ListServiceQuotasOutput
 	timesCalled               int
 }
 
-func (m *mockServiceQuotasClient) ListServiceQuotasPages(input *awsservicequotas.ListServiceQuotasInput, fn func(*awsservicequotas.ListServiceQuotasOutput, bool) bool) error {
+func (m *mockServiceQuotasClient) ListServiceQuotas(_ context.Context, input *awsservicequotas.ListServiceQuotasInput, _ ...func(*awsservicequotas.Options)) (*awsservicequotas.ListServiceQuotasOutput, error) {
 	m.timesCalled++
 
-	if *input.ServiceCode == m.serviceName {
-		fn(m.ListServiceQuotasResponse, true)
-	} else {
-		fn(nil, true)
+	if m.err != nil {
+		return nil, m.err
 	}
-	return m.err
+	if *input.ServiceCode == m.serviceName {
+		return m.ListServiceQuotasResponse, nil
+	}
+	return &awsservicequotas.ListServiceQuotasOutput{}, nil
 }
 
 type UsageCheckMock struct {
@@ -58,7 +57,7 @@ func TestQuotasAndUsageWithUsageError(t *testing.T) {
 	mockClient := &mockServiceQuotasClient{
 		serviceName: "ec2",
 		ListServiceQuotasResponse: &awsservicequotas.ListServiceQuotasOutput{
-			Quotas: []*awsservicequotas.ServiceQuota{
+			Quotas: []types.ServiceQuota{
 				{
 					QuotaCode: aws.String("L-1234"),
 					Value:     aws.Float64(15),
@@ -90,7 +89,7 @@ func TestQuotasAndUsage(t *testing.T) {
 	mockClient := &mockServiceQuotasClient{
 		serviceName: "ec2",
 		ListServiceQuotasResponse: &awsservicequotas.ListServiceQuotasOutput{
-			Quotas: []*awsservicequotas.ServiceQuota{
+			Quotas: []types.ServiceQuota{
 				{
 					QuotaCode: aws.String("L-1234"),
 					Value:     aws.Float64(15),
@@ -179,7 +178,7 @@ func TestQuotasAndUsageChina(t *testing.T) {
 	mockClientNotUsed := &mockServiceQuotasClient{
 		serviceName: "ec2",
 		ListServiceQuotasResponse: &awsservicequotas.ListServiceQuotasOutput{
-			Quotas: []*awsservicequotas.ServiceQuota{
+			Quotas: []types.ServiceQuota{
 				{
 					QuotaCode: aws.String("L-1234"),
 					Value:     aws.Float64(15),
@@ -294,12 +293,12 @@ func TestIsValidRegion(t *testing.T) {
 		wantIsChina     bool
 		wantPartitionID string
 	}{
-		{"us-east-1", true, false, endpoints.AwsPartitionID},
-		{"eu-central-1", true, false, endpoints.AwsPartitionID},
-		{"cn-north-1", true, true, endpoints.AwsCnPartitionID},
-		{"us-gov-west-1", true, false, endpoints.AwsUsGovPartitionID},
-		{"mx-central-1", true, false, endpoints.AwsPartitionID},
-		{"xx-fakeregion-9", true, false, endpoints.AwsPartitionID},
+		{"us-east-1", true, false, awsPartitionID},
+		{"eu-central-1", true, false, awsPartitionID},
+		{"cn-north-1", true, true, awsCnPartitionID},
+		{"us-gov-west-1", true, false, awsUsGovPartitionID},
+		{"mx-central-1", true, false, awsPartitionID},
+		{"xx-fakeregion-9", true, false, awsPartitionID},
 		{"asdasd", false, false, ""},
 		{"", false, false, ""},
 		{"us-east", false, false, ""},
@@ -319,7 +318,7 @@ func TestQuotasForGlobalServiceRoutesToGlobalClient(t *testing.T) {
 	regionalClient := &mockServiceQuotasClient{
 		serviceName: "iam",
 		ListServiceQuotasResponse: &awsservicequotas.ListServiceQuotasOutput{
-			Quotas: []*awsservicequotas.ServiceQuota{
+			Quotas: []types.ServiceQuota{
 				{QuotaCode: aws.String("L-REGIONAL"), Value: aws.Float64(1)},
 			},
 		},
@@ -327,7 +326,7 @@ func TestQuotasForGlobalServiceRoutesToGlobalClient(t *testing.T) {
 	globalClient := &mockServiceQuotasClient{
 		serviceName: "iam",
 		ListServiceQuotasResponse: &awsservicequotas.ListServiceQuotasOutput{
-			Quotas: []*awsservicequotas.ServiceQuota{
+			Quotas: []types.ServiceQuota{
 				{QuotaCode: aws.String("L-GLOBAL"), Value: aws.Float64(2)},
 			},
 		},

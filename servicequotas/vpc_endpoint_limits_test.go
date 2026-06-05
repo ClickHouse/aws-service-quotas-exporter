@@ -4,15 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 )
-
-func (m *mockEC2Client) DescribeVpcEndpointsPages(input *ec2.DescribeVpcEndpointsInput, fn func(*ec2.DescribeVpcEndpointsOutput, bool) bool) error {
-	fn(m.DescribeVpcEndpointsResponse, true)
-	return m.err
-}
 
 func TestInterfaceVpcEndpointsPerVpcUsageWithError(t *testing.T) {
 	mockClient := &mockEC2Client{
@@ -31,28 +27,28 @@ func TestInterfaceVpcEndpointsPerVpcUsageWithError(t *testing.T) {
 func TestInterfaceVpcEndpointsPerVpcUsage(t *testing.T) {
 	testCases := []struct {
 		name          string
-		endpoints     []*ec2.VpcEndpoint
+		endpoints     []types.VpcEndpoint
 		expectedUsage []QuotaUsage
 	}{
 		{
 			name:          "WithNoEndpoints",
-			endpoints:     []*ec2.VpcEndpoint{},
+			endpoints:     []types.VpcEndpoint{},
 			expectedUsage: nil,
 		},
 		{
 			name: "WithInterfaceEndpoints",
-			endpoints: []*ec2.VpcEndpoint{
+			endpoints: []types.VpcEndpoint{
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("GatewayLoadBalancer"),
+					VpcEndpointType: types.VpcEndpointType("GatewayLoadBalancer"),
 				},
 			},
 			expectedUsage: []QuotaUsage{
@@ -66,18 +62,18 @@ func TestInterfaceVpcEndpointsPerVpcUsage(t *testing.T) {
 		},
 		{
 			name: "WithMixedEndpointTypes",
-			endpoints: []*ec2.VpcEndpoint{
+			endpoints: []types.VpcEndpoint{
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Gateway"),
+					VpcEndpointType: types.VpcEndpointType("Gateway"),
 				},
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Resource"),
+					VpcEndpointType: types.VpcEndpointType("Resource"),
 				},
 			},
 			expectedUsage: []QuotaUsage{
@@ -91,18 +87,18 @@ func TestInterfaceVpcEndpointsPerVpcUsage(t *testing.T) {
 		},
 		{
 			name: "WithMultipleVPCs",
-			endpoints: []*ec2.VpcEndpoint{
+			endpoints: []types.VpcEndpoint{
 				{
 					VpcId:           aws.String("vpc-aaa"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 				{
 					VpcId:           aws.String("vpc-bbb"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 				{
 					VpcId:           aws.String("vpc-bbb"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 			},
 			expectedUsage: nil, // checked below with ElementsMatch due to map ordering
@@ -149,18 +145,18 @@ func TestResourceVpcEndpointsPerVpcUsage(t *testing.T) {
 	mockClient := &mockEC2Client{
 		err: nil,
 		DescribeVpcEndpointsResponse: &ec2.DescribeVpcEndpointsOutput{
-			VpcEndpoints: []*ec2.VpcEndpoint{
+			VpcEndpoints: []types.VpcEndpoint{
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Resource"),
+					VpcEndpointType: types.VpcEndpointType("Resource"),
 				},
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Resource"),
+					VpcEndpointType: types.VpcEndpointType("Resource"),
 				},
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 			},
 		},
@@ -184,14 +180,14 @@ func TestServiceNetworkVpcEndpointsPerVpcUsage(t *testing.T) {
 	mockClient := &mockEC2Client{
 		err: nil,
 		DescribeVpcEndpointsResponse: &ec2.DescribeVpcEndpointsOutput{
-			VpcEndpoints: []*ec2.VpcEndpoint{
+			VpcEndpoints: []types.VpcEndpoint{
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("ServiceNetwork"),
+					VpcEndpointType: types.VpcEndpointType("ServiceNetwork"),
 				},
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Interface"),
+					VpcEndpointType: types.VpcEndpointType("Interface"),
 				},
 			},
 		},
@@ -215,10 +211,10 @@ func TestVpcEndpointChecksWithNoMatchingType(t *testing.T) {
 	mockClient := &mockEC2Client{
 		err: nil,
 		DescribeVpcEndpointsResponse: &ec2.DescribeVpcEndpointsOutput{
-			VpcEndpoints: []*ec2.VpcEndpoint{
+			VpcEndpoints: []types.VpcEndpoint{
 				{
 					VpcId:           aws.String("vpc-123"),
-					VpcEndpointType: aws.String("Gateway"),
+					VpcEndpointType: types.VpcEndpointType("Gateway"),
 				},
 			},
 		},

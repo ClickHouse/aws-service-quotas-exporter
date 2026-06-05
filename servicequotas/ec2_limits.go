@@ -1,14 +1,28 @@
 package servicequotas
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
-	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
+
+// ec2API is the subset of the EC2 client used across the EC2-backed usage
+// checks (ec2, vpc and vpc endpoint limits). It is satisfied by *ec2.Client
+// and by the EC2 paginators' *APIClient interfaces.
+type ec2API interface {
+	DescribeSecurityGroups(context.Context, *ec2.DescribeSecurityGroupsInput, ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
+	DescribeNetworkInterfaces(context.Context, *ec2.DescribeNetworkInterfacesInput, ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error)
+	DescribeInstances(context.Context, *ec2.DescribeInstancesInput, ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	DescribeSubnets(context.Context, *ec2.DescribeSubnetsInput, ...func(*ec2.Options)) (*ec2.DescribeSubnetsOutput, error)
+	DescribeVpcs(context.Context, *ec2.DescribeVpcsInput, ...func(*ec2.Options)) (*ec2.DescribeVpcsOutput, error)
+	DescribeVpcEndpoints(context.Context, *ec2.DescribeVpcEndpointsInput, ...func(*ec2.Options)) (*ec2.DescribeVpcEndpointsOutput, error)
+	DescribeAddresses(context.Context, *ec2.DescribeAddressesInput, ...func(*ec2.Options)) (*ec2.DescribeAddressesOutput, error)
+}
 
 // Not all quota limits here are reported under "ec2", but all of the
 // usage checks are using the ec2 service
@@ -38,7 +52,7 @@ const (
 // RulesPerSecurityGroupUsageCheck implements the UsageCheck interface
 // for rules per security group
 type RulesPerSecurityGroupUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns the usage for each security group ID with the usage
@@ -47,49 +61,47 @@ func (c *RulesPerSecurityGroupUsageCheck) Usage() ([]QuotaUsage, error) {
 	quotaUsages := []QuotaUsage{}
 
 	params := &ec2.DescribeSecurityGroupsInput{}
-	err := c.client.DescribeSecurityGroupsPages(params,
-		func(page *ec2.DescribeSecurityGroupsOutput, lastPage bool) bool {
-			if page != nil {
-				for _, group := range page.SecurityGroups {
-					var inboundRules int
-					var outboundRules int
+	paginator := ec2.NewDescribeSecurityGroupsPaginator(c.client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
 
-					tags := ec2TagsToQuotaUsageTags(group.Tags)
+		for _, group := range page.SecurityGroups {
+			var inboundRules int
+			var outboundRules int
 
-					for _, rule := range group.IpPermissions {
-						inboundRules += len(rule.IpRanges)
-						inboundRules += len(rule.UserIdGroupPairs)
-					}
+			tags := ec2TagsToQuotaUsageTags(group.Tags)
 
-					inboundUsage := QuotaUsage{
-						Name:         inboundRulesPerSecGrpName,
-						ResourceName: group.GroupId,
-						Description:  inboundRulesPerSecGrpDesc,
-						Usage:        float64(inboundRules),
-						Tags:         tags,
-					}
-
-					for _, rule := range group.IpPermissionsEgress {
-						outboundRules += len(rule.IpRanges)
-						inboundRules += len(rule.UserIdGroupPairs)
-					}
-
-					outboundUsage := QuotaUsage{
-						Name:         outboundRulesPerSecGrpName,
-						ResourceName: group.GroupId,
-						Description:  outboundRulesPerSecGrpDesc,
-						Usage:        float64(outboundRules),
-						Tags:         tags,
-					}
-
-					quotaUsages = append(quotaUsages, []QuotaUsage{inboundUsage, outboundUsage}...)
-				}
+			for _, rule := range group.IpPermissions {
+				inboundRules += len(rule.IpRanges)
+				inboundRules += len(rule.UserIdGroupPairs)
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+
+			inboundUsage := QuotaUsage{
+				Name:         inboundRulesPerSecGrpName,
+				ResourceName: group.GroupId,
+				Description:  inboundRulesPerSecGrpDesc,
+				Usage:        float64(inboundRules),
+				Tags:         tags,
+			}
+
+			for _, rule := range group.IpPermissionsEgress {
+				outboundRules += len(rule.IpRanges)
+				inboundRules += len(rule.UserIdGroupPairs)
+			}
+
+			outboundUsage := QuotaUsage{
+				Name:         outboundRulesPerSecGrpName,
+				ResourceName: group.GroupId,
+				Description:  outboundRulesPerSecGrpDesc,
+				Usage:        float64(outboundRules),
+				Tags:         tags,
+			}
+
+			quotaUsages = append(quotaUsages, []QuotaUsage{inboundUsage, outboundUsage}...)
+		}
 	}
 
 	return quotaUsages, nil
@@ -98,7 +110,7 @@ func (c *RulesPerSecurityGroupUsageCheck) Usage() ([]QuotaUsage, error) {
 // SecurityGroupsPerENIUsageCheck implements the UsageCheck interface
 // for security groups per ENI
 type SecurityGroupsPerENIUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns usage for each Elastic Network Interface ID with the
@@ -108,25 +120,23 @@ func (c *SecurityGroupsPerENIUsageCheck) Usage() ([]QuotaUsage, error) {
 	quotaUsages := []QuotaUsage{}
 
 	params := &ec2.DescribeNetworkInterfacesInput{}
-	err := c.client.DescribeNetworkInterfacesPages(params,
-		func(page *ec2.DescribeNetworkInterfacesOutput, lastPage bool) bool {
-			if page != nil {
-				for _, eni := range page.NetworkInterfaces {
-					usage := QuotaUsage{
-						Name:         secGroupsPerENIName,
-						ResourceName: eni.NetworkInterfaceId,
-						Description:  secGroupsPerENIDesc,
-						Usage:        float64(len(eni.Groups)),
-						Tags:         ec2TagsToQuotaUsageTags(eni.TagSet),
-					}
-					quotaUsages = append(quotaUsages, usage)
-				}
+	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
+
+		for _, eni := range page.NetworkInterfaces {
+			usage := QuotaUsage{
+				Name:         secGroupsPerENIName,
+				ResourceName: eni.NetworkInterfaceId,
+				Description:  secGroupsPerENIDesc,
+				Usage:        float64(len(eni.Groups)),
+				Tags:         ec2TagsToQuotaUsageTags(eni.TagSet),
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+			quotaUsages = append(quotaUsages, usage)
+		}
 	}
 
 	return quotaUsages, nil
@@ -135,7 +145,7 @@ func (c *SecurityGroupsPerENIUsageCheck) Usage() ([]QuotaUsage, error) {
 // SecurityGroupsPerRegionUsageCheck implements the UsageCheck interface
 // for security groups per region
 type SecurityGroupsPerRegionUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns usage for security groups per region as the number of
@@ -144,16 +154,13 @@ func (c *SecurityGroupsPerRegionUsageCheck) Usage() ([]QuotaUsage, error) {
 	numGroups := 0
 
 	params := &ec2.DescribeSecurityGroupsInput{}
-	err := c.client.DescribeSecurityGroupsPages(params,
-		func(page *ec2.DescribeSecurityGroupsOutput, lastPage bool) bool {
-			if page != nil {
-				numGroups += len(page.SecurityGroups)
-			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+	paginator := ec2.NewDescribeSecurityGroupsPaginator(c.client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
+		numGroups += len(page.SecurityGroups)
 	}
 
 	usage := []QuotaUsage{
@@ -166,30 +173,17 @@ func (c *SecurityGroupsPerRegionUsageCheck) Usage() ([]QuotaUsage, error) {
 	return usage, nil
 }
 
-func standardInstanceTypeFilter() *ec2.Filter {
-	return &ec2.Filter{
-		Name: aws.String("instance-type"),
-		Values: []*string{
-			aws.String("a*"),
-			aws.String("c*"),
-			aws.String("d*"),
-			aws.String("h*"),
-			aws.String("i*"),
-			aws.String("m*"),
-			aws.String("r*"),
-			aws.String("t*"),
-			aws.String("z*"),
-		},
+func standardInstanceTypeFilter() types.Filter {
+	return types.Filter{
+		Name:   aws.String("instance-type"),
+		Values: []string{"a*", "c*", "d*", "h*", "i*", "m*", "r*", "t*", "z*"},
 	}
 }
 
-func activeInstanceFilter() *ec2.Filter {
-	return &ec2.Filter{
-		Name: aws.String("instance-state-name"),
-		Values: []*string{
-			aws.String("pending"),
-			aws.String("running"),
-		},
+func activeInstanceFilter() types.Filter {
+	return types.Filter{
+		Name:   aws.String("instance-state-name"),
+		Values: []string{"pending", "running"},
 	}
 }
 
@@ -199,47 +193,45 @@ func activeInstanceFilter() *ec2.Filter {
 // here because instances can have custom CPU options specified during
 // launch. More information can be found at
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-optimize-cpu.html
-func standardInstancesCPUs(ec2Service ec2iface.EC2API, spotInstances bool) (int64, error) {
+func standardInstancesCPUs(ec2Service ec2API, spotInstances bool) (int64, error) {
 	var totalvCPUs int64
 	instanceTypeFilter := standardInstanceTypeFilter()
 	instanceStateFilter := activeInstanceFilter()
-	filters := []*ec2.Filter{instanceTypeFilter, instanceStateFilter}
+	filters := []types.Filter{instanceTypeFilter, instanceStateFilter}
 
 	// According to the AWS docs we should be able to filter
 	// "scheduled" instances as well, but that does not work so we
 	// are using filters only for the spot instances
 	if spotInstances {
-		spotFilter := &ec2.Filter{
+		spotFilter := types.Filter{
 			Name:   aws.String("instance-lifecycle"),
-			Values: []*string{aws.String("spot")},
+			Values: []string{"spot"},
 		}
 		filters = append(filters, spotFilter)
 	}
 
 	params := &ec2.DescribeInstancesInput{Filters: filters}
-	err := ec2Service.DescribeInstancesPages(params,
-		func(page *ec2.DescribeInstancesOutput, lastPage bool) bool {
-			if page != nil {
-				for _, reservation := range page.Reservations {
-					for _, instance := range reservation.Instances {
-						// InstanceLifecycle is nil for On-Demand instances
-						if !spotInstances && instance.InstanceLifecycle != nil {
-							continue
-						}
+	paginator := ec2.NewDescribeInstancesPaginator(ec2Service, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return 0, err
+		}
 
-						cpuOptions := instance.CpuOptions
-						if cpuOptions.CoreCount != nil && cpuOptions.ThreadsPerCore != nil {
-							numvCPUs := *cpuOptions.CoreCount * *cpuOptions.ThreadsPerCore
-							totalvCPUs += numvCPUs
-						}
-					}
+		for _, reservation := range page.Reservations {
+			for _, instance := range reservation.Instances {
+				// InstanceLifecycle is empty for On-Demand instances
+				if !spotInstances && instance.InstanceLifecycle != "" {
+					continue
+				}
+
+				cpuOptions := instance.CpuOptions
+				if cpuOptions != nil && cpuOptions.CoreCount != nil && cpuOptions.ThreadsPerCore != nil {
+					numvCPUs := int64(*cpuOptions.CoreCount) * int64(*cpuOptions.ThreadsPerCore)
+					totalvCPUs += numvCPUs
 				}
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return 0, err
+		}
 	}
 
 	return totalvCPUs, nil
@@ -248,7 +240,7 @@ func standardInstancesCPUs(ec2Service ec2iface.EC2API, spotInstances bool) (int6
 // StandardSpotInstanceRequestsUsageCheck implements the UsageCheck interface
 // for standard spot instance requests
 type StandardSpotInstanceRequestsUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns vCPU usage for all standard (A, C, D, H, I, M, R, T,
@@ -275,7 +267,7 @@ func (c *StandardSpotInstanceRequestsUsageCheck) Usage() ([]QuotaUsage, error) {
 // RunningOnDemandStandardInstancesUsageCheck implements the UsageCheck interface
 // for standard on-demand instances
 type RunningOnDemandStandardInstancesUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns vCPU usage for all running on-demand standard (A, C,
@@ -302,7 +294,7 @@ func (c *RunningOnDemandStandardInstancesUsageCheck) Usage() ([]QuotaUsage, erro
 // AvailableIpsPerSubnetUsageCheck implements the UsageCheckInterface
 // for available IPs per subnet
 type AvailableIpsPerSubnetUsageCheck struct {
-	client ec2iface.EC2API
+	client ec2API
 }
 
 // Usage returns the usage for each subnet ID with the usage value
@@ -316,35 +308,33 @@ func (c *AvailableIpsPerSubnetUsageCheck) Usage() ([]QuotaUsage, error) {
 	var conversionErr error
 
 	params := &ec2.DescribeSubnetsInput{}
-	err := c.client.DescribeSubnetsPages(params,
-		func(page *ec2.DescribeSubnetsOutput, lastPage bool) bool {
-			if page != nil {
-				for _, subnet := range page.Subnets {
-					cidrBlock := *subnet.CidrBlock
-					blockedBits, err := strconv.Atoi(cidrBlock[len(cidrBlock)-2:])
-					if err != nil {
-						conversionErr = fmt.Errorf("%w: %s", ErrFailedToConvertCidr, err)
-						// stops paging if strconv experiences an error
-						return true
-					}
-					maxNumOfIPs := math.Pow(2, 32-float64(blockedBits))
-					usage := float64(maxNumOfIPs - float64(*subnet.AvailableIpAddressCount))
-					availabilityInfo := QuotaUsage{
-						Name:         availableIPsPerSubnetName,
-						ResourceName: subnet.SubnetId,
-						Description:  availableIPsPerSubnetDesc,
-						Usage:        usage,
-						Quota:        float64(maxNumOfIPs),
-						Tags:         ec2TagsToQuotaUsageTags(subnet.Tags),
-					}
-					availabilityInfos = append(availabilityInfos, availabilityInfo)
-				}
+	paginator := ec2.NewDescribeSubnetsPaginator(c.client, params)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(context.TODO())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+		}
+
+		for _, subnet := range page.Subnets {
+			cidrBlock := *subnet.CidrBlock
+			blockedBits, err := strconv.Atoi(cidrBlock[len(cidrBlock)-2:])
+			if err != nil {
+				conversionErr = fmt.Errorf("%w: %s", ErrFailedToConvertCidr, err)
+				// stops paging if strconv experiences an error
+				return nil, conversionErr
 			}
-			return !lastPage
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
+			maxNumOfIPs := math.Pow(2, 32-float64(blockedBits))
+			usage := float64(maxNumOfIPs - float64(*subnet.AvailableIpAddressCount))
+			availabilityInfo := QuotaUsage{
+				Name:         availableIPsPerSubnetName,
+				ResourceName: subnet.SubnetId,
+				Description:  availableIPsPerSubnetDesc,
+				Usage:        usage,
+				Quota:        float64(maxNumOfIPs),
+				Tags:         ec2TagsToQuotaUsageTags(subnet.Tags),
+			}
+			availabilityInfos = append(availabilityInfos, availabilityInfo)
+		}
 	}
 
 	if conversionErr != nil {
@@ -354,7 +344,7 @@ func (c *AvailableIpsPerSubnetUsageCheck) Usage() ([]QuotaUsage, error) {
 	return availabilityInfos, nil
 }
 
-func ec2TagsToQuotaUsageTags(tags []*ec2.Tag) map[string]string {
+func ec2TagsToQuotaUsageTags(tags []types.Tag) map[string]string {
 	length := len(tags)
 	if length == 0 {
 		return nil

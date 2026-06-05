@@ -4,15 +4,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/elbv2"
+	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	"github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/stretchr/testify/assert"
 )
-
-func (m *mockELBV2Client) DescribeLoadBalancersPages(input *elbv2.DescribeLoadBalancersInput, fn func(*elbv2.DescribeLoadBalancersOutput, bool) bool) error {
-	fn(m.DescribeLoadBalancersResponse, true)
-	return m.err
-}
 
 func TestNLBsPerRegionUsageWithError(t *testing.T) {
 	mockClient := &mockELBV2Client{
@@ -31,12 +26,12 @@ func TestNLBsPerRegionUsageWithError(t *testing.T) {
 func TestNLBsPerRegionUsage(t *testing.T) {
 	testCases := []struct {
 		name          string
-		loadBalancers []*elbv2.LoadBalancer
+		loadBalancers []types.LoadBalancer
 		expectedUsage []QuotaUsage
 	}{
 		{
 			name:          "WithNoLoadBalancers",
-			loadBalancers: []*elbv2.LoadBalancer{},
+			loadBalancers: []types.LoadBalancer{},
 			expectedUsage: []QuotaUsage{
 				{
 					Name:        nlbsPerRegionName,
@@ -47,11 +42,11 @@ func TestNLBsPerRegionUsage(t *testing.T) {
 		},
 		{
 			name: "WithMixedTypes",
-			loadBalancers: []*elbv2.LoadBalancer{
-				{Type: aws.String(elbv2.LoadBalancerTypeEnumNetwork)},
-				{Type: aws.String(elbv2.LoadBalancerTypeEnumNetwork)},
-				{Type: aws.String(elbv2.LoadBalancerTypeEnumApplication)},
-				{Type: aws.String("gateway")},
+			loadBalancers: []types.LoadBalancer{
+				{Type: types.LoadBalancerTypeEnumNetwork},
+				{Type: types.LoadBalancerTypeEnumNetwork},
+				{Type: types.LoadBalancerTypeEnumApplication},
+				{Type: types.LoadBalancerTypeEnum("gateway")},
 			},
 			expectedUsage: []QuotaUsage{
 				{

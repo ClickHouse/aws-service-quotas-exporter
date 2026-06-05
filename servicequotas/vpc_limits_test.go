@@ -4,22 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 )
-
-func (m *mockEC2Client) DescribeVpcsPages(input *ec2.DescribeVpcsInput, fn func(*ec2.DescribeVpcsOutput, bool) bool) error {
-	fn(m.DescribeVpcsResponse, true)
-	return m.err
-}
-
-func (m *mockEC2Client) DescribeAddresses(input *ec2.DescribeAddressesInput) (*ec2.DescribeAddressesOutput, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.DescribeAddressesResponse, nil
-}
 
 func TestVpcsPerRegionUsageWithError(t *testing.T) {
 	mockClient := &mockEC2Client{
@@ -38,12 +27,12 @@ func TestVpcsPerRegionUsageWithError(t *testing.T) {
 func TestVpcsPerRegionUsage(t *testing.T) {
 	testCases := []struct {
 		name          string
-		vpcs          []*ec2.Vpc
+		vpcs          []types.Vpc
 		expectedUsage []QuotaUsage
 	}{
 		{
 			name: "WithNoVpcs",
-			vpcs: []*ec2.Vpc{},
+			vpcs: []types.Vpc{},
 			expectedUsage: []QuotaUsage{
 				{
 					Name:        vpcsPerRegionName,
@@ -54,7 +43,7 @@ func TestVpcsPerRegionUsage(t *testing.T) {
 		},
 		{
 			name: "WithMultipleVpcs",
-			vpcs: []*ec2.Vpc{
+			vpcs: []types.Vpc{
 				{VpcId: aws.String("vpc-aaa")},
 				{VpcId: aws.String("vpc-bbb")},
 				{VpcId: aws.String("vpc-ccc")},
@@ -104,12 +93,12 @@ func TestEIPsPerRegionUsageWithError(t *testing.T) {
 func TestEIPsPerRegionUsage(t *testing.T) {
 	testCases := []struct {
 		name          string
-		addresses     []*ec2.Address
+		addresses     []types.Address
 		expectedUsage []QuotaUsage
 	}{
 		{
 			name:      "WithNoEIPs",
-			addresses: []*ec2.Address{},
+			addresses: []types.Address{},
 			expectedUsage: []QuotaUsage{
 				{
 					Name:        eipsPerRegionName,
@@ -120,7 +109,7 @@ func TestEIPsPerRegionUsage(t *testing.T) {
 		},
 		{
 			name: "WithMultipleEIPs",
-			addresses: []*ec2.Address{
+			addresses: []types.Address{
 				{AllocationId: aws.String("eipalloc-1")},
 				{AllocationId: aws.String("eipalloc-2")},
 			},

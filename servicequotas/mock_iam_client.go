@@ -1,26 +1,36 @@
 package servicequotas
 
 import (
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/iam/iamiface"
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iam/types"
 )
 
 type mockIAMClient struct {
-	iamiface.IAMAPI
-
 	err                    error
 	ListRolesResponse      *iam.ListRolesOutput
 	ListPoliciesResponse   *iam.ListPoliciesOutput
-	ListPoliciesScopeInput *string
+	ListPoliciesScopeInput types.PolicyScopeType
 }
 
-func (m *mockIAMClient) ListRolesPages(input *iam.ListRolesInput, fn func(*iam.ListRolesOutput, bool) bool) error {
-	fn(m.ListRolesResponse, true)
-	return m.err
+func (m *mockIAMClient) ListRoles(_ context.Context, _ *iam.ListRolesInput, _ ...func(*iam.Options)) (*iam.ListRolesOutput, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.ListRolesResponse == nil {
+		return &iam.ListRolesOutput{}, nil
+	}
+	return m.ListRolesResponse, nil
 }
 
-func (m *mockIAMClient) ListPoliciesPages(input *iam.ListPoliciesInput, fn func(*iam.ListPoliciesOutput, bool) bool) error {
+func (m *mockIAMClient) ListPolicies(_ context.Context, input *iam.ListPoliciesInput, _ ...func(*iam.Options)) (*iam.ListPoliciesOutput, error) {
 	m.ListPoliciesScopeInput = input.Scope
-	fn(m.ListPoliciesResponse, true)
-	return m.err
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.ListPoliciesResponse == nil {
+		return &iam.ListPoliciesOutput{}, nil
+	}
+	return m.ListPoliciesResponse, nil
 }
