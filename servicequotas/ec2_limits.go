@@ -305,7 +305,6 @@ type AvailableIpsPerSubnetUsageCheck struct {
 // the subnet's CIDR block
 func (c *AvailableIpsPerSubnetUsageCheck) Usage() ([]QuotaUsage, error) {
 	availabilityInfos := []QuotaUsage{}
-	var conversionErr error
 
 	params := &ec2.DescribeSubnetsInput{}
 	paginator := ec2.NewDescribeSubnetsPaginator(c.client, params)
@@ -319,9 +318,7 @@ func (c *AvailableIpsPerSubnetUsageCheck) Usage() ([]QuotaUsage, error) {
 			cidrBlock := *subnet.CidrBlock
 			blockedBits, err := strconv.Atoi(cidrBlock[len(cidrBlock)-2:])
 			if err != nil {
-				conversionErr = fmt.Errorf("%w: %s", ErrFailedToConvertCidr, err)
-				// stops paging if strconv experiences an error
-				return nil, conversionErr
+				return nil, fmt.Errorf("%w: %s", ErrFailedToConvertCidr, err)
 			}
 			maxNumOfIPs := math.Pow(2, 32-float64(blockedBits))
 			usage := float64(maxNumOfIPs - float64(*subnet.AvailableIpAddressCount))
@@ -335,10 +332,6 @@ func (c *AvailableIpsPerSubnetUsageCheck) Usage() ([]QuotaUsage, error) {
 			}
 			availabilityInfos = append(availabilityInfos, availabilityInfo)
 		}
-	}
-
-	if conversionErr != nil {
-		return nil, conversionErr
 	}
 
 	return availabilityInfos, nil
