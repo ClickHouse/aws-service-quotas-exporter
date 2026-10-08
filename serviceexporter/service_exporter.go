@@ -3,6 +3,7 @@
 package serviceexporter
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -13,6 +14,8 @@ import (
 )
 
 var log = logging.WithFields(logging.Fields{})
+
+const unknownCheck = "unknown"
 
 // Metric holds usage and limit desc and values
 type Metric struct {
@@ -37,10 +40,17 @@ type ServiceQuotasExporter struct {
 	refreshPeriod   int
 	waitForMetrics  chan struct{}
 	includedAWSTags []string
+
+	lastRefreshSuccess time.Time
+	refreshErrors      map[string]float64
 }
 
 // NewServiceQuotasExporter creates a new ServiceQuotasExporter
 func NewServiceQuotasExporter(region, profile string, refreshPeriod int, includedAWSTags []string, quotasOpts ...servicequotas.QuotasOptions) (*ServiceQuotasExporter, error) {
+	if refreshPeriod <= 0 {
+		return nil, fmt.Errorf("refresh period must be positive, got %d", refreshPeriod)
+	}
+
 	quotasClient, err := servicequotas.NewServiceQuotas(region, profile, quotasOpts...)
 	if err != nil {
 		return nil, err
@@ -65,23 +75,45 @@ func NewServiceQuotasExporter(region, profile string, refreshPeriod int, include
 func (e *ServiceQuotasExporter) refreshMetrics() {
 	<-e.waitForMetrics
 
-	for {
-		time.Sleep(time.Duration(e.refreshPeriod) * time.Second)
+	ticker := time.NewTicker(time.Duration(e.refreshPeriod) * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
 		e.createOrUpdateQuotasAndDescriptions(true)
 	}
 }
 
+// createOrUpdateQuotasAndDescriptions replaces the exported metrics
+// with the latest quotas and usage, so resources created or deleted
+// since the last run are added or removed. On error the previously
+// exported metrics are kept. update is false only for the first run,
+// which unblocks the refresh loop once it finishes.
 func (e *ServiceQuotasExporter) createOrUpdateQuotasAndDescriptions(update bool) {
-	quotas, err := e.quotasClient.QuotasAndUsage()
-	if err != nil {
-		log.Fatalf("Could not retrieve quotas and limits: %s", err)
+	if !update {
+		defer close(e.waitForMetrics)
 	}
 
-	e.metricsLock.Lock()
-	defer e.metricsLock.Unlock()
+	quotas, err := e.quotasClient.QuotasAndUsage()
+	if err != nil {
+		check := unknownCheck
+		var checkErr *servicequotas.CheckError
+		if errors.As(err, &checkErr) {
+			check = checkErr.Check
+		}
 
+		e.metricsLock.Lock()
+		if e.refreshErrors == nil {
+			e.refreshErrors = map[string]float64{}
+		}
+		e.refreshErrors[check]++
+		e.metricsLock.Unlock()
+
+		log.Errorf("Could not retrieve quotas and limits, keeping previous metrics: %s", err)
+		return
+	}
+
+	metrics := make(map[string]Metric, len(quotas))
 	for _, quota := range quotas {
-		key := metricKey(quota)
 		resourceID := quota.Identifier()
 
 		labels := []string{"resource"}
@@ -94,45 +126,33 @@ func (e *ServiceQuotasExporter) createOrUpdateQuotasAndDescriptions(update bool)
 			labelValues = append(labelValues, quota.Tags[prometheusFormatTag])
 		}
 
-		if update {
-			if resourceMetric, ok := e.metrics[key]; ok {
-				log.Infof("Updating metrics for resource (%s)", resourceID)
-				resourceMetric.usage = quota.Usage
-				resourceMetric.limit = quota.Quota
-				resourceMetric.labelValues = labelValues
-				e.metrics[key] = resourceMetric
-			}
-		} else {
-			usageHelp := fmt.Sprintf("Used amount of %s", quota.Description)
-			usageDesc := newDesc(e.metricsRegion, quota.Name, "used_total", usageHelp, labels)
+		usageHelp := fmt.Sprintf("Used amount of %s", quota.Description)
+		usageDesc := newDesc(e.metricsRegion, quota.Name, "used_total", usageHelp, labels)
 
-			limitHelp := fmt.Sprintf("Limit of %s", quota.Description)
-			limitDesc := newDesc(e.metricsRegion, quota.Name, "limit_total", limitHelp, labels)
-			resourceMetric := Metric{
-				usageDesc:   usageDesc,
-				limitDesc:   limitDesc,
-				usage:       quota.Usage,
-				limit:       quota.Quota,
-				labelValues: labelValues,
-			}
-			e.metrics[key] = resourceMetric
+		limitHelp := fmt.Sprintf("Limit of %s", quota.Description)
+		limitDesc := newDesc(e.metricsRegion, quota.Name, "limit_total", limitHelp, labels)
+
+		metrics[metricKey(quota)] = Metric{
+			usageDesc:   usageDesc,
+			limitDesc:   limitDesc,
+			usage:       quota.Usage,
+			limit:       quota.Quota,
+			labelValues: labelValues,
 		}
 	}
 
-	if !update {
-		close(e.waitForMetrics)
-	}
+	e.metricsLock.Lock()
+	defer e.metricsLock.Unlock()
+
+	e.metrics = metrics
+	e.lastRefreshSuccess = time.Now()
+	log.Infof("Refreshed metrics for %d quotas", len(metrics))
 }
 
-// Describe writes descriptors to the prometheus desc channel
-func (e *ServiceQuotasExporter) Describe(ch chan<- *prometheus.Desc) {
-	<-e.waitForMetrics
-
-	for _, metric := range e.metrics {
-		ch <- metric.usageDesc
-		ch <- metric.limitDesc
-	}
-}
+// Describe sends no descriptors, which makes this an unchecked
+// collector. The set of exported metrics changes at runtime as AWS
+// resources are created and deleted.
+func (e *ServiceQuotasExporter) Describe(_ chan<- *prometheus.Desc) {}
 
 // Collect implements the collect function for prometheus collectors
 func (e *ServiceQuotasExporter) Collect(ch chan<- prometheus.Metric) {
@@ -143,6 +163,35 @@ func (e *ServiceQuotasExporter) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(metric.limitDesc, prometheus.GaugeValue, metric.limit, metric.labelValues...)
 		ch <- prometheus.MustNewConstMetric(metric.usageDesc, prometheus.GaugeValue, metric.usage, metric.labelValues...)
 	}
+
+	lastRefreshSuccess := 0.0
+	if !e.lastRefreshSuccess.IsZero() {
+		lastRefreshSuccess = float64(e.lastRefreshSuccess.UnixNano()) / 1e9
+	}
+	ch <- prometheus.MustNewConstMetric(e.lastRefreshSuccessDesc(), prometheus.GaugeValue, lastRefreshSuccess)
+
+	refreshErrorsDesc := e.refreshErrorsDesc()
+	for check, count := range e.refreshErrors {
+		ch <- prometheus.MustNewConstMetric(refreshErrorsDesc, prometheus.CounterValue, count, check)
+	}
+}
+
+func (e *ServiceQuotasExporter) lastRefreshSuccessDesc() *prometheus.Desc {
+	return prometheus.NewDesc(
+		"aws_service_quotas_exporter_last_refresh_success_timestamp_seconds",
+		"Unix timestamp of the last successful refresh of AWS quotas and usage",
+		nil,
+		prometheus.Labels{"region": e.metricsRegion},
+	)
+}
+
+func (e *ServiceQuotasExporter) refreshErrorsDesc() *prometheus.Desc {
+	return prometheus.NewDesc(
+		"aws_service_quotas_exporter_refresh_errors_total",
+		"Total number of failed refreshes of AWS quotas and usage, by failing check",
+		[]string{"check"},
+		prometheus.Labels{"region": e.metricsRegion},
+	)
 }
 
 func newDesc(region, quotaName, metricName, help string, labels []string) *prometheus.Desc {

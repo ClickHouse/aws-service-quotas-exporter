@@ -50,6 +50,9 @@ func TestQuotasAndUsageWithError(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToListQuotas))
+	var checkErr *CheckError
+	assert.True(t, errors.As(err, &checkErr))
+	assert.Equal(t, "list_service_quotas_ec2", checkErr.Check)
 	assert.Nil(t, quotasAndUsage)
 }
 
@@ -81,7 +84,25 @@ func TestQuotasAndUsageWithUsageError(t *testing.T) {
 	}
 	quotasAndUsage, err := serviceQuotas.QuotasAndUsage()
 
-	assert.Equal(t, expectedErr, err)
+	assert.True(t, errors.Is(err, expectedErr))
+	var checkErr *CheckError
+	assert.True(t, errors.As(err, &checkErr))
+	assert.Equal(t, "UsageCheckMock", checkErr.Check)
+	assert.Nil(t, quotasAndUsage)
+}
+
+func TestQuotasAndUsageWithOtherUsageCheckError(t *testing.T) {
+	expectedErr := errors.New("some err")
+	serviceQuotas := ServiceQuotas{
+		isAwsChina:       true,
+		otherUsageChecks: []UsageCheck{&UsageCheckMock{err: expectedErr}},
+	}
+	quotasAndUsage, err := serviceQuotas.QuotasAndUsage()
+
+	assert.True(t, errors.Is(err, expectedErr))
+	var checkErr *CheckError
+	assert.True(t, errors.As(err, &checkErr))
+	assert.Equal(t, "UsageCheckMock", checkErr.Check)
 	assert.Nil(t, quotasAndUsage)
 }
 
