@@ -110,7 +110,7 @@ aws_iam_policies_per_account_used_total{region="us-east-1",resource="iam_policie
 
 ## Refresh behaviour and exporter health metrics
 
-Quotas and usage are refreshed every `--refresh-period` seconds. Each
+The exporter waits `--refresh-period` seconds between refreshes. Each
 successful refresh replaces the full set of exported metrics, so resources
 created after startup are picked up and deleted resources stop being
 exported. If a refresh fails, the error is logged and the metrics from the

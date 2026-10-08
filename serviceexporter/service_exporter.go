@@ -75,10 +75,8 @@ func NewServiceQuotasExporter(region, profile string, refreshPeriod int, include
 func (e *ServiceQuotasExporter) refreshMetrics() {
 	<-e.waitForMetrics
 
-	ticker := time.NewTicker(time.Duration(e.refreshPeriod) * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
+	for {
+		time.Sleep(time.Duration(e.refreshPeriod) * time.Second)
 		e.createOrUpdateQuotasAndDescriptions(true)
 	}
 }
