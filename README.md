@@ -108,6 +108,24 @@ aws_iam_policies_per_account_limit_total{region="us-east-1",resource="iam_polici
 aws_iam_policies_per_account_used_total{region="us-east-1",resource="iam_policies_per_account"} 47
 ```
 
+## Refresh behaviour and exporter health metrics
+
+The exporter waits `--refresh-period` seconds between refreshes. Each
+successful refresh replaces the full set of exported metrics, so resources
+created after startup are picked up and deleted resources stop being
+exported. If a refresh fails, the error is logged and the metrics from the
+last successful refresh keep being served.
+
+The exporter reports on its own refreshes with:
+```
+aws_service_quotas_exporter_last_refresh_success_timestamp_seconds{region="us-east-1"} 1.7598e+09
+aws_service_quotas_exporter_refresh_errors_total{check="RulesPerSecurityGroupUsageCheck",region="us-east-1"} 1
+```
+
+`last_refresh_success_timestamp_seconds` is `0` until the first successful
+refresh. To alert on stale data, use for example
+`time() - aws_service_quotas_exporter_last_refresh_success_timestamp_seconds > 3600`.
+
 # IAM Permissions
 
 The AWS Service Quotas requires permissions for the following actions

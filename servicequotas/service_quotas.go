@@ -44,6 +44,26 @@ var (
 	ErrFailedToConvertCidr = errors.New("failed to convert CIDR block from string to int")
 )
 
+// CheckError wraps an error with the name of the check that produced
+// it, so callers can tell which check failed
+type CheckError struct {
+	Check string
+	Err   error
+}
+
+func (e *CheckError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Check, e.Err)
+}
+
+func (e *CheckError) Unwrap() error {
+	return e.Err
+}
+
+func usageCheckName(check UsageCheck) string {
+	name := fmt.Sprintf("%T", check)
+	return name[strings.LastIndex(name, ".")+1:]
+}
+
 // globalServiceQuotasRegions maps an AWS partition ID to the region from which
 // the Service Quotas API exposes quotas for globally-scoped services (e.g. IAM).
 // Listing quotas for these services from any other region returns an empty result.
@@ -303,14 +323,17 @@ func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(context.TODO())
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrFailedToListQuotas, err)
+			return nil, &CheckError{
+				Check: "list_service_quotas_" + service,
+				Err:   fmt.Errorf("%w: %s", ErrFailedToListQuotas, err),
+			}
 		}
 
 		for _, quota := range page.Quotas {
 			if check, ok := s.serviceQuotasUsageChecks[*quota.QuotaCode]; ok {
 				quotaUsages, err := check.Usage()
 				if err != nil {
-					return nil, err
+					return nil, &CheckError{Check: usageCheckName(check), Err: err}
 				}
 
 				for _, quotaUsage := range quotaUsages {
@@ -342,7 +365,7 @@ func (s *ServiceQuotas) QuotasAndUsage() ([]QuotaUsage, error) {
 	for _, check := range s.otherUsageChecks {
 		quotas, err := check.Usage()
 		if err != nil {
-			return nil, err
+			return nil, &CheckError{Check: usageCheckName(check), Err: err}
 		}
 
 		allQuotaUsages = append(allQuotaUsages, quotas...)
