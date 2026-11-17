@@ -315,7 +315,10 @@ func (c *AvailableIpsPerSubnetUsageCheck) Usage() ([]QuotaUsage, error) {
 		}
 
 		for _, subnet := range page.Subnets {
-			cidrBlock := *subnet.CidrBlock
+			cidrBlock := aws.ToString(subnet.CidrBlock)
+			if len(cidrBlock) < 2 {
+				return nil, fmt.Errorf("%w: %q", ErrFailedToConvertCidr, cidrBlock)
+			}
 			blockedBits, err := strconv.Atoi(cidrBlock[len(cidrBlock)-2:])
 			if err != nil {
 				return nil, fmt.Errorf("%w: %s", ErrFailedToConvertCidr, err)

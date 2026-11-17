@@ -378,24 +378,35 @@ func TestAvailableIpsPerSubnetUsageWithError(t *testing.T) {
 }
 
 func TestAvailableIpsPerSubnetUsageWithInvalidCidrConversion(t *testing.T) {
-	mockClient := &mockEC2Client{
-		DescribeSubnetsResponse: &ec2.DescribeSubnetsOutput{
-			Subnets: []types.Subnet{
-				{
-					AvailabilityZone:        aws.String("eu-west-1"),
-					AvailableIpAddressCount: aws.Int32(4096),
-					CidrBlock:               aws.String("invalid-cidr"),
-					SubnetId:                aws.String("subnet-id"),
-				},
-			},
-		},
+	testCases := []struct {
+		name      string
+		cidrBlock *string
+	}{
+		{name: "InvalidCIDR", cidrBlock: aws.String("invalid-cidr")},
+		{name: "NilCIDR", cidrBlock: nil},
+		{name: "EmptyCIDR", cidrBlock: aws.String("")},
 	}
-	check := AvailableIpsPerSubnetUsageCheck{mockClient}
-	usage, err := check.Usage()
 
-	assert.Error(t, err)
-	assert.True(t, errors.Is(err, ErrFailedToConvertCidr))
-	assert.Nil(t, usage)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockClient := &mockEC2Client{
+				DescribeSubnetsResponse: &ec2.DescribeSubnetsOutput{
+					Subnets: []types.Subnet{{
+						AvailabilityZone:        aws.String("eu-west-1"),
+						AvailableIpAddressCount: aws.Int32(4096),
+						CidrBlock:               tc.cidrBlock,
+						SubnetId:                aws.String("subnet-id"),
+					}},
+				},
+			}
+			check := AvailableIpsPerSubnetUsageCheck{mockClient}
+			usage, err := check.Usage()
+
+			assert.Error(t, err)
+			assert.True(t, errors.Is(err, ErrFailedToConvertCidr))
+			assert.Nil(t, usage)
+		})
+	}
 }
 
 func TestAvailableIpsPerSubnetUsage(t *testing.T) {
