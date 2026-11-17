@@ -29,12 +29,12 @@ type IAMRolesPerAccountUsageCheck struct {
 }
 
 // Usage returns the number of IAM roles in the account.
-func (c *IAMRolesPerAccountUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *IAMRolesPerAccountUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	numRoles := 0
 
 	paginator := iam.NewListRolesPaginator(c.client, &iam.ListRolesInput{})
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}
@@ -58,13 +58,13 @@ type IAMPoliciesPerAccountUsageCheck struct {
 
 // Usage returns the number of customer managed IAM policies in the account.
 // AWS managed policies are excluded by scoping the request to Local.
-func (c *IAMPoliciesPerAccountUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *IAMPoliciesPerAccountUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	numPolicies := 0
 
 	params := &iam.ListPoliciesInput{Scope: types.PolicyScopeTypeLocal}
 	paginator := iam.NewListPoliciesPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}

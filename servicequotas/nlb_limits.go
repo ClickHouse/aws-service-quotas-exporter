@@ -25,13 +25,13 @@ type NLBsPerRegionUsageCheck struct {
 }
 
 // Usage returns the number of Network Load Balancers in the region.
-func (c *NLBsPerRegionUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *NLBsPerRegionUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	numNLBs := 0
 
 	params := &elbv2.DescribeLoadBalancersInput{}
 	paginator := elbv2.NewDescribeLoadBalancersPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}

@@ -1,6 +1,7 @@
 package servicequotas
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestASGUsageCheckWithError(t *testing.T) {
 	}
 
 	check := ASGUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToGetUsage))
@@ -62,7 +63,7 @@ func TestASGUsageCheck(t *testing.T) {
 	}
 
 	check := ASGUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	expectedUsage := []QuotaUsage{
 		{

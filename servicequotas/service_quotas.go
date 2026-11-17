@@ -101,7 +101,7 @@ func allServices(opts QuotasOptions) []string {
 // UsageCheck is an interface for retrieving service quota usage
 type UsageCheck interface {
 	// Usage returns slice of QuotaUsage or an error
-	Usage() ([]QuotaUsage, error)
+	Usage(ctx context.Context) ([]QuotaUsage, error)
 }
 
 // QuotasOptions configures optional usage checks
@@ -225,19 +225,18 @@ type ServiceQuotas struct {
 // QuotasInterface is an interface for retrieving AWS service
 // quotas and usage
 type QuotasInterface interface {
-	QuotasAndUsage() ([]QuotaUsage, error)
+	QuotasAndUsage(ctx context.Context) ([]QuotaUsage, error)
 }
 
 // NewServiceQuotas creates a ServiceQuotas for `region` and `profile`
 // or returns an error. Note that the ServiceQuotas will only return
 // usage and quotas for the service quotas with implemented usage checks
-func NewServiceQuotas(region, profile string, quotasOpts ...QuotasOptions) (QuotasInterface, error) {
+func NewServiceQuotas(ctx context.Context, region, profile string, quotasOpts ...QuotasOptions) (QuotasInterface, error) {
 	validRegion, isChina, partitionID := isValidRegion(region)
 	if !validRegion {
 		return nil, fmt.Errorf("%w: failed to create ServiceQuotas", ErrInvalidRegion)
 	}
 
-	ctx := context.TODO()
 	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(region),
 		// The Service Quotas API has a low request rate limit and this
@@ -310,7 +309,7 @@ func isValidRegion(region string) (bool, bool, string) {
 	return true, partitionID == awsCnPartitionID, partitionID
 }
 
-func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
+func (s *ServiceQuotas) quotasForService(ctx context.Context, service string) ([]QuotaUsage, error) {
 	serviceQuotaUsages := []QuotaUsage{}
 
 	quotasService := s.quotasService
@@ -321,17 +320,17 @@ func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 	params := &awsservicequotas.ListServiceQuotasInput{ServiceCode: aws.String(service)}
 	paginator := awsservicequotas.NewListServiceQuotasPaginator(quotasService, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, &CheckError{
 				Check: "list_service_quotas_" + service,
-				Err:   fmt.Errorf("%w: %s", ErrFailedToListQuotas, err),
+				Err:   fmt.Errorf("%w: %w", ErrFailedToListQuotas, err),
 			}
 		}
 
 		for _, quota := range page.Quotas {
 			if check, ok := s.serviceQuotasUsageChecks[*quota.QuotaCode]; ok {
-				quotaUsages, err := check.Usage()
+				quotaUsages, err := check.Usage(ctx)
 				if err != nil {
 					return nil, &CheckError{Check: usageCheckName(check), Err: err}
 				}
@@ -348,12 +347,12 @@ func (s *ServiceQuotas) quotasForService(service string) ([]QuotaUsage, error) {
 }
 
 // QuotasAndUsage returns a slice of `QuotaUsage` or an error
-func (s *ServiceQuotas) QuotasAndUsage() ([]QuotaUsage, error) {
+func (s *ServiceQuotas) QuotasAndUsage(ctx context.Context) ([]QuotaUsage, error) {
 	allQuotaUsages := []QuotaUsage{}
 
 	if !s.isAwsChina {
 		for _, service := range s.services {
-			serviceQuotas, err := s.quotasForService(service)
+			serviceQuotas, err := s.quotasForService(ctx, service)
 			if err != nil {
 				return nil, err
 			}
@@ -363,7 +362,7 @@ func (s *ServiceQuotas) QuotasAndUsage() ([]QuotaUsage, error) {
 	}
 
 	for _, check := range s.otherUsageChecks {
-		quotas, err := check.Usage()
+		quotas, err := check.Usage(ctx)
 		if err != nil {
 			return nil, &CheckError{Check: usageCheckName(check), Err: err}
 		}

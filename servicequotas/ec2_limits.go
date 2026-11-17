@@ -57,13 +57,13 @@ type RulesPerSecurityGroupUsageCheck struct {
 
 // Usage returns the usage for each security group ID with the usage
 // value being the sum of their inbound and outbound rules or an error
-func (c *RulesPerSecurityGroupUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *RulesPerSecurityGroupUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	quotaUsages := []QuotaUsage{}
 
 	params := &ec2.DescribeSecurityGroupsInput{}
 	paginator := ec2.NewDescribeSecurityGroupsPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}
@@ -116,13 +116,13 @@ type SecurityGroupsPerENIUsageCheck struct {
 // Usage returns usage for each Elastic Network Interface ID with the
 // usage value being the number of security groups for each ENI or an
 // error
-func (c *SecurityGroupsPerENIUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *SecurityGroupsPerENIUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	quotaUsages := []QuotaUsage{}
 
 	params := &ec2.DescribeNetworkInterfacesInput{}
 	paginator := ec2.NewDescribeNetworkInterfacesPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}
@@ -150,13 +150,13 @@ type SecurityGroupsPerRegionUsageCheck struct {
 
 // Usage returns usage for security groups per region as the number of
 // all security groups for the region specified with `cfgs` or an error
-func (c *SecurityGroupsPerRegionUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *SecurityGroupsPerRegionUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	numGroups := 0
 
 	params := &ec2.DescribeSecurityGroupsInput{}
 	paginator := ec2.NewDescribeSecurityGroupsPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}
@@ -193,7 +193,7 @@ func activeInstanceFilter() types.Filter {
 // here because instances can have custom CPU options specified during
 // launch. More information can be found at
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-optimize-cpu.html
-func standardInstancesCPUs(ec2Service ec2API, spotInstances bool) (int64, error) {
+func standardInstancesCPUs(ctx context.Context, ec2Service ec2API, spotInstances bool) (int64, error) {
 	var totalvCPUs int64
 	instanceTypeFilter := standardInstanceTypeFilter()
 	instanceStateFilter := activeInstanceFilter()
@@ -213,7 +213,7 @@ func standardInstancesCPUs(ec2Service ec2API, spotInstances bool) (int64, error)
 	params := &ec2.DescribeInstancesInput{Filters: filters}
 	paginator := ec2.NewDescribeInstancesPaginator(ec2Service, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return 0, err
 		}
@@ -248,8 +248,8 @@ type StandardSpotInstanceRequestsUsageCheck struct {
 // vCPUs are returned instead of the number of images due to the
 // service quota reporting the number of vCPUs
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-limits.html
-func (c *StandardSpotInstanceRequestsUsageCheck) Usage() ([]QuotaUsage, error) {
-	cpus, err := standardInstancesCPUs(c.client, true)
+func (c *StandardSpotInstanceRequestsUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
+	cpus, err := standardInstancesCPUs(ctx, c.client, true)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 	}
@@ -275,8 +275,8 @@ type RunningOnDemandStandardInstancesUsageCheck struct {
 // of the number of images due to the service quota reporting the number
 // of vCPUs
 // https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/using-spot-limits.html
-func (c *RunningOnDemandStandardInstancesUsageCheck) Usage() ([]QuotaUsage, error) {
-	cpus, err := standardInstancesCPUs(c.client, false)
+func (c *RunningOnDemandStandardInstancesUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
+	cpus, err := standardInstancesCPUs(ctx, c.client, false)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 	}
@@ -303,18 +303,21 @@ type AvailableIpsPerSubnetUsageCheck struct {
 // Note that the Description of the resource here is constructed
 // using `availableIPsPerSubnetDesc` defined previously as well as
 // the subnet's CIDR block
-func (c *AvailableIpsPerSubnetUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *AvailableIpsPerSubnetUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	availabilityInfos := []QuotaUsage{}
 
 	params := &ec2.DescribeSubnetsInput{}
 	paginator := ec2.NewDescribeSubnetsPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}
 
 		for _, subnet := range page.Subnets {
+			if aws.ToBool(subnet.Ipv6Native) {
+				continue
+			}
 			cidrBlock := aws.ToString(subnet.CidrBlock)
 			if len(cidrBlock) < 2 {
 				return nil, fmt.Errorf("%w: %q", ErrFailedToConvertCidr, cidrBlock)

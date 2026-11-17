@@ -77,7 +77,7 @@ func TestLambdaConcurrentExecutionsLimitCheck_Usage(t *testing.T) {
 				client: test.client,
 			}
 
-			usages, err := c.Usage()
+			usages, err := c.Usage(context.Background())
 
 			assert.Equal(t, test.expectedErr, err)
 			assert.Equal(t, test.expectedUsage, usages)

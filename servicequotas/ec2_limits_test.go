@@ -1,6 +1,7 @@
 package servicequotas
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestRulesPerSecurityGroupUsageWithError(t *testing.T) {
 	}
 
 	check := RulesPerSecurityGroupUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToGetUsage))
@@ -121,7 +122,7 @@ func TestRulesPerSecurityGroupUsage(t *testing.T) {
 			}
 
 			check := RulesPerSecurityGroupUsageCheck{mockClient}
-			usage, err := check.Usage()
+			usage, err := check.Usage(context.Background())
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedUsage, usage)
@@ -136,7 +137,7 @@ func TestSecurityGroupsPerENIUsageWithError(t *testing.T) {
 	}
 
 	check := SecurityGroupsPerENIUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToGetUsage))
@@ -192,7 +193,7 @@ func TestSecurityGroupsPerENIUsage(t *testing.T) {
 			}
 
 			check := SecurityGroupsPerENIUsageCheck{mockClient}
-			usage, err := check.Usage()
+			usage, err := check.Usage(context.Background())
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedUsage, usage)
@@ -207,7 +208,7 @@ func TestSecurityGroupsPerRegionUsageWithError(t *testing.T) {
 	}
 
 	check := SecurityGroupsPerRegionUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToGetUsage))
@@ -261,7 +262,7 @@ func TestSecurityGroupsPerRegionUsage(t *testing.T) {
 			}
 
 			check := SecurityGroupsPerRegionUsageCheck{mockClient}
-			usage, err := check.Usage()
+			usage, err := check.Usage(context.Background())
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedUsage, usage)
@@ -275,7 +276,7 @@ func TestStandardInstancesCPUsWithError(t *testing.T) {
 		DescribeInstancesResponse: nil,
 	}
 
-	cpus, err := standardInstancesCPUs(mockClient, true)
+	cpus, err := standardInstancesCPUs(context.Background(), mockClient, true)
 
 	assert.Error(t, err)
 	assert.Equal(t, int64(0), cpus)
@@ -313,7 +314,7 @@ func TestStandardInstancesCPUsFilters(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockClient := &mockEC2Client{err: nil, DescribeInstancesResponse: nil}
 
-			cpus, err := standardInstancesCPUs(mockClient, tc.spotInstances)
+			cpus, err := standardInstancesCPUs(context.Background(), mockClient, tc.spotInstances)
 
 			assert.NoError(t, err)
 			assert.Equal(t, int64(0), cpus)
@@ -358,7 +359,7 @@ func TestStandardInstancesCPUs(t *testing.T) {
 		},
 	}
 
-	cpus, err := standardInstancesCPUs(mockClient, false)
+	cpus, err := standardInstancesCPUs(context.Background(), mockClient, false)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(12), cpus)
 }
@@ -370,7 +371,7 @@ func TestAvailableIpsPerSubnetUsageWithError(t *testing.T) {
 	}
 
 	check := AvailableIpsPerSubnetUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToGetUsage))
@@ -400,13 +401,40 @@ func TestAvailableIpsPerSubnetUsageWithInvalidCidrConversion(t *testing.T) {
 				},
 			}
 			check := AvailableIpsPerSubnetUsageCheck{mockClient}
-			usage, err := check.Usage()
+			usage, err := check.Usage(context.Background())
 
 			assert.Error(t, err)
 			assert.True(t, errors.Is(err, ErrFailedToConvertCidr))
 			assert.Nil(t, usage)
 		})
 	}
+}
+
+func TestAvailableIpsPerSubnetUsageSkipsIpv6Native(t *testing.T) {
+	mockClient := &mockEC2Client{
+		DescribeSubnetsResponse: &ec2.DescribeSubnetsOutput{
+			Subnets: []types.Subnet{
+				{SubnetId: aws.String("subnet-ipv6"), Ipv6Native: aws.Bool(true)},
+				{
+					SubnetId:                aws.String("subnet-ipv4"),
+					CidrBlock:               aws.String("10.0.0.0/24"),
+					AvailableIpAddressCount: aws.Int32(16),
+				},
+			},
+		},
+	}
+	check := AvailableIpsPerSubnetUsageCheck{mockClient}
+
+	usage, err := check.Usage(context.Background())
+
+	assert.NoError(t, err)
+	assert.Equal(t, []QuotaUsage{{
+		Name:         availableIPsPerSubnetName,
+		ResourceName: aws.String("subnet-ipv4"),
+		Description:  availableIPsPerSubnetDesc,
+		Usage:        240,
+		Quota:        256,
+	}}, usage)
 }
 
 func TestAvailableIpsPerSubnetUsage(t *testing.T) {
@@ -510,7 +538,7 @@ func TestAvailableIpsPerSubnetUsage(t *testing.T) {
 			}
 
 			check := AvailableIpsPerSubnetUsageCheck{mockClient}
-			usage, err := check.Usage()
+			usage, err := check.Usage(context.Background())
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedUsage, usage)

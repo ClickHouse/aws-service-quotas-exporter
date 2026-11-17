@@ -1,6 +1,7 @@
 package servicequotas
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestVpcsPerRegionUsageWithError(t *testing.T) {
 	}
 
 	check := VpcsPerRegionUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToGetUsage))
@@ -68,7 +69,7 @@ func TestVpcsPerRegionUsage(t *testing.T) {
 			}
 
 			check := VpcsPerRegionUsageCheck{mockClient}
-			usage, err := check.Usage()
+			usage, err := check.Usage(context.Background())
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedUsage, usage)
@@ -83,7 +84,7 @@ func TestEIPsPerRegionUsageWithError(t *testing.T) {
 	}
 
 	check := EIPsPerRegionUsageCheck{mockClient}
-	usage, err := check.Usage()
+	usage, err := check.Usage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToGetUsage))
@@ -133,7 +134,7 @@ func TestEIPsPerRegionUsage(t *testing.T) {
 			}
 
 			check := EIPsPerRegionUsageCheck{mockClient}
-			usage, err := check.Usage()
+			usage, err := check.Usage(context.Background())
 
 			assert.NoError(t, err)
 			assert.Equal(t, tc.expectedUsage, usage)

@@ -24,14 +24,14 @@ const (
 )
 
 // vpcEndpointsByVpcAndType counts VPC endpoints grouped by VPC ID and type.
-func vpcEndpointsByVpcAndType(client ec2API) (map[string]map[string]int, error) {
+func vpcEndpointsByVpcAndType(ctx context.Context, client ec2API) (map[string]map[string]int, error) {
 	// map[vpcId]map[endpointType]count
 	counts := make(map[string]map[string]int)
 
 	params := &ec2.DescribeVpcEndpointsInput{}
 	paginator := ec2.NewDescribeVpcEndpointsPaginator(client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}
@@ -57,8 +57,8 @@ type InterfaceVpcEndpointsPerVpcUsageCheck struct {
 }
 
 // Usage returns the usage of Interface + GatewayLoadBalancer VPC endpoints per VPC.
-func (c *InterfaceVpcEndpointsPerVpcUsageCheck) Usage() ([]QuotaUsage, error) {
-	counts, err := vpcEndpointsByVpcAndType(c.client)
+func (c *InterfaceVpcEndpointsPerVpcUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
+	counts, err := vpcEndpointsByVpcAndType(ctx, c.client)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +87,8 @@ type ResourceVpcEndpointsPerVpcUsageCheck struct {
 }
 
 // Usage returns the usage of Resource VPC endpoints per VPC.
-func (c *ResourceVpcEndpointsPerVpcUsageCheck) Usage() ([]QuotaUsage, error) {
-	counts, err := vpcEndpointsByVpcAndType(c.client)
+func (c *ResourceVpcEndpointsPerVpcUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
+	counts, err := vpcEndpointsByVpcAndType(ctx, c.client)
 	if err != nil {
 		return nil, err
 	}
@@ -117,8 +117,8 @@ type ServiceNetworkVpcEndpointsPerVpcUsageCheck struct {
 }
 
 // Usage returns the usage of ServiceNetwork VPC endpoints per VPC.
-func (c *ServiceNetworkVpcEndpointsPerVpcUsageCheck) Usage() ([]QuotaUsage, error) {
-	counts, err := vpcEndpointsByVpcAndType(c.client)
+func (c *ServiceNetworkVpcEndpointsPerVpcUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
+	counts, err := vpcEndpointsByVpcAndType(ctx, c.client)
 	if err != nil {
 		return nil, err
 	}
