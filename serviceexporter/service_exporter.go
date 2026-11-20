@@ -5,6 +5,7 @@ package serviceexporter
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -27,7 +28,20 @@ type Metric struct {
 }
 
 func metricKey(quota servicequotas.QuotaUsage) string {
-	return fmt.Sprintf("%s%s", quota.Name, quota.Identifier())
+	key := fmt.Sprintf("%s%s", quota.Name, quota.Identifier())
+	for _, name := range sortedLabelNames(quota.Labels) {
+		key += fmt.Sprintf(",%s=%s", name, quota.Labels[name])
+	}
+	return key
+}
+
+func sortedLabelNames(labels map[string]string) []string {
+	names := make([]string, 0, len(labels))
+	for name := range labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ServiceQuotasExporter AWS service quotas and usage prometheus
@@ -122,6 +136,11 @@ func (e *ServiceQuotasExporter) createOrUpdateQuotasAndDescriptions(update bool)
 			labels = append(labels, prometheusFormatTag)
 			// Need to set empty label value to keep label name and value count the same
 			labelValues = append(labelValues, quota.Tags[prometheusFormatTag])
+		}
+
+		for _, name := range sortedLabelNames(quota.Labels) {
+			labels = append(labels, name)
+			labelValues = append(labelValues, quota.Labels[name])
 		}
 
 		usageHelp := fmt.Sprintf("Used amount of %s", quota.Description)

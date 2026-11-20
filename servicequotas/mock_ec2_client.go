@@ -11,6 +11,7 @@ type mockEC2Client struct {
 	err                               error
 	DescribeSecurityGroupsResponse    *ec2.DescribeSecurityGroupsOutput
 	DescribeNetworkInterfacesResponse *ec2.DescribeNetworkInterfacesOutput
+	NetworkInterfacesFilters          []types.Filter
 	InstancesFilters                  []types.Filter
 	DescribeInstancesResponse         *ec2.DescribeInstancesOutput
 	DescribeSubnetsResponse           *ec2.DescribeSubnetsOutput
@@ -29,7 +30,8 @@ func (m *mockEC2Client) DescribeSecurityGroups(_ context.Context, _ *ec2.Describ
 	return m.DescribeSecurityGroupsResponse, nil
 }
 
-func (m *mockEC2Client) DescribeNetworkInterfaces(_ context.Context, _ *ec2.DescribeNetworkInterfacesInput, _ ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error) {
+func (m *mockEC2Client) DescribeNetworkInterfaces(_ context.Context, input *ec2.DescribeNetworkInterfacesInput, _ ...func(*ec2.Options)) (*ec2.DescribeNetworkInterfacesOutput, error) {
+	m.NetworkInterfacesFilters = input.Filters
 	if m.err != nil {
 		return nil, m.err
 	}

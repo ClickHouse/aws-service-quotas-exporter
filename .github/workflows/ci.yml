@@ -23,6 +23,9 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+          # The default of 1m is too short to load the AWS SDK packages
+          # when the runner has no warm cache.
+          args: --timeout=5m
 
   build-and-test:
     name: Build and test
