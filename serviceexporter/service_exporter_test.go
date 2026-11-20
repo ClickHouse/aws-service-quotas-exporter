@@ -1,11 +1,13 @@
 package serviceexporter
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -24,7 +26,7 @@ type ServiceQuotasMock struct {
 	err    error
 }
 
-func (s *ServiceQuotasMock) QuotasAndUsage() ([]servicequotas.QuotaUsage, error) {
+func (s *ServiceQuotasMock) QuotasAndUsage(_ context.Context) ([]servicequotas.QuotaUsage, error) {
 	return s.quotas, s.err
 }
 
@@ -49,7 +51,7 @@ func TestUpdateMetrics(t *testing.T) {
 		refreshPeriod:   360,
 	}
 
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 
 	usageDesc := newDesc("eu-west-1", "", "used_total", "Used amount of ", []string{"resource", "dummy_tag"})
 	limitDesc := newDesc("eu-west-1", "", "limit_total", "Limit of ", []string{"resource", "dummy_tag"})
@@ -96,7 +98,7 @@ func TestCreateQuotasAndDescriptions(t *testing.T) {
 		includedAWSTags: []string{"dummy-tag", "dummy-tag2"},
 	}
 
-	exporter.createOrUpdateQuotasAndDescriptions(false)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), false)
 
 	firstUsageDesc := newDesc(region, firstQ.Name, "used_total", "Used amount of desc1", []string{"resource", "dummy_tag", "dummy_tag2"})
 	firstLimitDesc := newDesc(region, firstQ.Name, "limit_total", "Limit of desc1", []string{"resource", "dummy_tag", "dummy_tag2"})
@@ -152,7 +154,7 @@ func TestCreateQuotasAndDescriptionsRefresh(t *testing.T) {
 		refreshPeriod:   360,
 	}
 
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 
 	labels := []string{"resource", "dummy_tag"}
 	expectedMetrics := map[string]Metric{
@@ -223,14 +225,14 @@ func TestRefreshAddsResourceCreatedAfterStartup(t *testing.T) {
 	quotasClient := &ServiceQuotasMock{quotas: []servicequotas.QuotaUsage{sgQuota("sg-1", 10)}}
 	exporter := newTestExporter(quotasClient)
 
-	exporter.createOrUpdateQuotasAndDescriptions(false)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), false)
 	assert.Equal(t, []string{
 		"aws_inbound_rules_per_security_group_limit_total/sg-1",
 		"aws_inbound_rules_per_security_group_used_total/sg-1",
 	}, exportedResources(t, exporter))
 
 	quotasClient.quotas = []servicequotas.QuotaUsage{sgQuota("sg-1", 10), sgQuota("sg-2", 249)}
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 	assert.Equal(t, []string{
 		"aws_inbound_rules_per_security_group_limit_total/sg-1",
 		"aws_inbound_rules_per_security_group_limit_total/sg-2",
@@ -243,11 +245,11 @@ func TestRefreshAddsQuotaNameNotSeenAtStartup(t *testing.T) {
 	quotasClient := &ServiceQuotasMock{quotas: []servicequotas.QuotaUsage{}}
 	exporter := newTestExporter(quotasClient)
 
-	exporter.createOrUpdateQuotasAndDescriptions(false)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), false)
 	assert.Empty(t, exportedResources(t, exporter))
 
 	quotasClient.quotas = []servicequotas.QuotaUsage{sgQuota("sg-1", 10)}
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 	assert.Equal(t, []string{
 		"aws_inbound_rules_per_security_group_limit_total/sg-1",
 		"aws_inbound_rules_per_security_group_used_total/sg-1",
@@ -258,11 +260,11 @@ func TestRefreshRemovesDeletedResource(t *testing.T) {
 	quotasClient := &ServiceQuotasMock{quotas: []servicequotas.QuotaUsage{sgQuota("sg-1", 10), sgQuota("sg-2", 20)}}
 	exporter := newTestExporter(quotasClient)
 
-	exporter.createOrUpdateQuotasAndDescriptions(false)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), false)
 	assert.Len(t, exportedResources(t, exporter), 4)
 
 	quotasClient.quotas = []servicequotas.QuotaUsage{sgQuota("sg-1", 10)}
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 	assert.Equal(t, []string{
 		"aws_inbound_rules_per_security_group_limit_total/sg-1",
 		"aws_inbound_rules_per_security_group_used_total/sg-1",
@@ -273,13 +275,13 @@ func TestRefreshErrorKeepsPreviousMetrics(t *testing.T) {
 	quotasClient := &ServiceQuotasMock{quotas: []servicequotas.QuotaUsage{sgQuota("sg-1", 10)}}
 	exporter := newTestExporter(quotasClient)
 
-	exporter.createOrUpdateQuotasAndDescriptions(false)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), false)
 	lastSuccess := exporter.lastRefreshSuccess
 	assert.False(t, lastSuccess.IsZero())
 
 	quotasClient.quotas = nil
 	quotasClient.err = &servicequotas.CheckError{Check: "RulesPerSecurityGroupUsageCheck", Err: errors.New("throttled")}
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 
 	assert.Equal(t, []string{
 		"aws_inbound_rules_per_security_group_limit_total/sg-1",
@@ -293,7 +295,7 @@ func TestRefreshErrorOnFirstRun(t *testing.T) {
 	quotasClient := &ServiceQuotasMock{err: errors.New("no credentials")}
 	exporter := newTestExporter(quotasClient)
 
-	exporter.createOrUpdateQuotasAndDescriptions(false)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), false)
 
 	assert.Empty(t, exportedResources(t, exporter))
 	assert.True(t, exporter.lastRefreshSuccess.IsZero())
@@ -310,7 +312,7 @@ func TestConcurrentRefreshAndCollect(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < 50; i++ {
-			exporter.createOrUpdateQuotasAndDescriptions(true)
+			exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 		}
 	}()
 	for i := 0; i < 50; i++ {
@@ -322,7 +324,7 @@ func TestConcurrentRefreshAndCollect(t *testing.T) {
 func TestCollectExportsRefreshStatusMetrics(t *testing.T) {
 	quotasClient := &ServiceQuotasMock{err: &servicequotas.CheckError{Check: "list_service_quotas_ec2", Err: errors.New("boom")}}
 	exporter := newTestExporter(quotasClient)
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 
 	expected := `
 # HELP aws_service_quotas_exporter_last_refresh_success_timestamp_seconds Unix timestamp of the last successful refresh of AWS quotas and usage
@@ -336,7 +338,7 @@ aws_service_quotas_exporter_refresh_errors_total{check="list_service_quotas_ec2"
 
 	quotasClient.err = nil
 	quotasClient.quotas = []servicequotas.QuotaUsage{}
-	exporter.createOrUpdateQuotasAndDescriptions(true)
+	exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
 
 	registry := prometheus.NewPedanticRegistry()
 	require.NoError(t, registry.Register(exporter))
@@ -349,4 +351,69 @@ aws_service_quotas_exporter_refresh_errors_total{check="list_service_quotas_ec2"
 		}
 	}
 	assert.InDelta(t, float64(exporter.lastRefreshSuccess.Unix()), lastSuccess, 1)
+}
+
+// hangingQuotasClient blocks until its refresh context ends.
+type hangingQuotasClient struct {
+	err error
+}
+
+func (c *hangingQuotasClient) QuotasAndUsage(ctx context.Context) ([]servicequotas.QuotaUsage, error) {
+	<-ctx.Done()
+	c.err = ctx.Err()
+	return nil, c.err
+}
+
+func TestRefreshTimeoutKeepsPreviousMetrics(t *testing.T) {
+	quotasClient := &hangingQuotasClient{}
+	exporter := newTestExporter(quotasClient)
+	exporter.refreshTimeout = 50 * time.Millisecond
+	previousTime := time.Unix(1234, 0)
+	exporter.lastRefreshSuccess = previousTime
+	previousMetrics := map[string]Metric{"Name1i-asdasd1": {usage: 1, limit: 2}}
+	exporter.metrics = map[string]Metric{"Name1i-asdasd1": previousMetrics["Name1i-asdasd1"]}
+
+	done := make(chan struct{})
+	go func() {
+		exporter.createOrUpdateQuotasAndDescriptions(context.Background(), true)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("refresh did not time out")
+	}
+
+	assert.True(t, errors.Is(quotasClient.err, context.DeadlineExceeded))
+	exporter.metricsLock.Lock()
+	defer exporter.metricsLock.Unlock()
+	assert.Equal(t, previousMetrics, exporter.metrics)
+	assert.Equal(t, previousTime, exporter.lastRefreshSuccess)
+	assert.Equal(t, map[string]float64{unknownCheck: 1}, exporter.refreshErrors)
+}
+
+func TestRefreshLoopStopsOnContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	exporter := newTestExporter(&ServiceQuotasMock{})
+	close(exporter.waitForMetrics)
+	done := make(chan struct{})
+	go func() {
+		exporter.refreshMetrics(ctx)
+		close(done)
+	}()
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("refresh loop did not stop after context cancellation")
+	}
+	assert.Nil(t, exporter.refreshErrors)
+}
+
+func TestNewServiceQuotasExporterRejectsNegativeTimeout(t *testing.T) {
+	exporter, err := NewServiceQuotasExporter(context.Background(), "us-east-1", "", 360, -time.Second, nil)
+	assert.Nil(t, exporter)
+	assert.EqualError(t, err, "refresh timeout must not be negative, got -1s")
 }

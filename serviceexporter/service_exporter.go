@@ -3,6 +3,7 @@
 package serviceexporter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -38,6 +39,7 @@ type ServiceQuotasExporter struct {
 	metrics         map[string]Metric
 	metricsLock     *sync.Mutex
 	refreshPeriod   int
+	refreshTimeout  time.Duration
 	waitForMetrics  chan struct{}
 	includedAWSTags []string
 
@@ -46,12 +48,15 @@ type ServiceQuotasExporter struct {
 }
 
 // NewServiceQuotasExporter creates a new ServiceQuotasExporter
-func NewServiceQuotasExporter(region, profile string, refreshPeriod int, includedAWSTags []string, quotasOpts ...servicequotas.QuotasOptions) (*ServiceQuotasExporter, error) {
+func NewServiceQuotasExporter(ctx context.Context, region, profile string, refreshPeriod int, refreshTimeout time.Duration, includedAWSTags []string, quotasOpts ...servicequotas.QuotasOptions) (*ServiceQuotasExporter, error) {
 	if refreshPeriod <= 0 {
 		return nil, fmt.Errorf("refresh period must be positive, got %d", refreshPeriod)
 	}
+	if refreshTimeout < 0 {
+		return nil, fmt.Errorf("refresh timeout must not be negative, got %s", refreshTimeout)
+	}
 
-	quotasClient, err := servicequotas.NewServiceQuotas(region, profile, quotasOpts...)
+	quotasClient, err := servicequotas.NewServiceQuotas(ctx, region, profile, quotasOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -63,21 +68,26 @@ func NewServiceQuotasExporter(region, profile string, refreshPeriod int, include
 		metrics:         map[string]Metric{},
 		metricsLock:     &sync.Mutex{},
 		refreshPeriod:   refreshPeriod,
+		refreshTimeout:  refreshTimeout,
 		waitForMetrics:  ch,
 		includedAWSTags: includedAWSTags,
 	}
-	go exporter.createOrUpdateQuotasAndDescriptions(false)
-	go exporter.refreshMetrics()
+	go exporter.createOrUpdateQuotasAndDescriptions(ctx, false)
+	go exporter.refreshMetrics(ctx)
 
 	return exporter, nil
 }
 
-func (e *ServiceQuotasExporter) refreshMetrics() {
+func (e *ServiceQuotasExporter) refreshMetrics(ctx context.Context) {
 	<-e.waitForMetrics
 
 	for {
-		time.Sleep(time.Duration(e.refreshPeriod) * time.Second)
-		e.createOrUpdateQuotasAndDescriptions(true)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(e.refreshPeriod) * time.Second):
+		}
+		e.createOrUpdateQuotasAndDescriptions(ctx, true)
 	}
 }
 
@@ -86,12 +96,18 @@ func (e *ServiceQuotasExporter) refreshMetrics() {
 // since the last run are added or removed. On error the previously
 // exported metrics are kept. update is false only for the first run,
 // which unblocks the refresh loop once it finishes.
-func (e *ServiceQuotasExporter) createOrUpdateQuotasAndDescriptions(update bool) {
+func (e *ServiceQuotasExporter) createOrUpdateQuotasAndDescriptions(ctx context.Context, update bool) {
 	if !update {
 		defer close(e.waitForMetrics)
 	}
 
-	quotas, err := e.quotasClient.QuotasAndUsage()
+	if e.refreshTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, e.refreshTimeout)
+		defer cancel()
+	}
+
+	quotas, err := e.quotasClient.QuotasAndUsage(ctx)
 	if err != nil {
 		check := unknownCheck
 		var checkErr *servicequotas.CheckError

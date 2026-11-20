@@ -28,13 +28,13 @@ type ASGUsageCheck struct {
 // Usage returns usage per auto scaling group - the maximum number of
 // instances per ASG and the current number of "running" instances per
 // ASG.
-func (c *ASGUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *ASGUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	quotaUsages := []QuotaUsage{}
 
 	params := &autoscaling.DescribeAutoScalingGroupsInput{}
 	paginator := autoscaling.NewDescribeAutoScalingGroupsPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}

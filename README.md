@@ -177,6 +177,7 @@ Example IAM policy
 | -p         | --port             | N/A         | Port on which to serve metrics                                             |
 | -r         | --region           | AWS_REGION  | AWS region                                                                 |
 | -f         | --profile          | AWS_PROFILE | Named AWS profile                                                          |
+| N/A        | --refresh-timeout  | N/A         | Maximum duration of one refresh, defaults to 5m. Set to 0 to disable      |
 | N/A        | --include-aws-tag  | N/A         | The aws resource tags to include as labels for returned metrics            |
 | N/A        | --enable-vpc-endpoints | N/A     | Enable VPC endpoint quota monitoring                                       |
 | N/A        | --enable-vpcs-per-region | N/A   | Enable VPCs per region quota monitoring                                    |
@@ -202,6 +203,8 @@ Docker images are also available at thoughtmachine/aws-service-quotas-exporter:<
 Example
 `service_quotas/<service_name>_limits.go`
 ```
+import "context"
+
 const (
     myQuotaName        = "prometheus_valid_metric_name"  // Only [a-zA-Z0-9:_]
     myQuotaDescription = "my description"
@@ -211,8 +214,8 @@ type MyUsageCheck struct {
     client awsserviceiface.SERVICEAPI  // eg ec2iface.EC2API
 }
 
-func (c *MyUsageCheck) Usage() ([]QuotaUsage, error) {
-    // ...client.GetRequiredInformation
+func (c *MyUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
+    // ...client.GetRequiredInformation(ctx, ...)
 
     // In case we are retrieving usage for multiple resources:
     for _, resource := range {

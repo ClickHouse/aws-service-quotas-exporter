@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsservicequotas "github.com/aws/aws-sdk-go-v2/service/servicequotas"
@@ -30,12 +31,19 @@ func (m *mockServiceQuotasClient) ListServiceQuotas(_ context.Context, input *aw
 	return &awsservicequotas.ListServiceQuotasOutput{}, nil
 }
 
+type blockingServiceQuotasClient struct{}
+
+func (blockingServiceQuotasClient) ListServiceQuotas(ctx context.Context, _ *awsservicequotas.ListServiceQuotasInput, _ ...func(*awsservicequotas.Options)) (*awsservicequotas.ListServiceQuotasOutput, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 type UsageCheckMock struct {
 	err    error
 	usages []QuotaUsage
 }
 
-func (m *UsageCheckMock) Usage() ([]QuotaUsage, error) {
+func (m *UsageCheckMock) Usage(_ context.Context) ([]QuotaUsage, error) {
 	return m.usages, m.err
 }
 
@@ -46,7 +54,7 @@ func TestQuotasAndUsageWithError(t *testing.T) {
 	}
 
 	serviceQuotas := ServiceQuotas{quotasService: mockClient, services: []string{"ec2", "vpc"}}
-	quotasAndUsage, err := serviceQuotas.QuotasAndUsage()
+	quotasAndUsage, err := serviceQuotas.QuotasAndUsage(context.Background())
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrFailedToListQuotas))
@@ -54,6 +62,33 @@ func TestQuotasAndUsageWithError(t *testing.T) {
 	assert.True(t, errors.As(err, &checkErr))
 	assert.Equal(t, "list_service_quotas_ec2", checkErr.Check)
 	assert.Nil(t, quotasAndUsage)
+}
+
+func TestQuotasAndUsagePropagatesContextDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	serviceQuotas := ServiceQuotas{
+		quotasService: blockingServiceQuotasClient{},
+		services:      []string{"ec2"},
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := serviceQuotas.QuotasAndUsage(ctx)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		assert.True(t, errors.Is(err, context.DeadlineExceeded))
+		assert.True(t, errors.Is(err, ErrFailedToListQuotas))
+		var checkErr *CheckError
+		assert.True(t, errors.As(err, &checkErr))
+		if checkErr != nil {
+			assert.Equal(t, "list_service_quotas_ec2", checkErr.Check)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nested quota request did not receive the deadline")
+	}
 }
 
 func TestQuotasAndUsageWithUsageError(t *testing.T) {
@@ -82,7 +117,7 @@ func TestQuotasAndUsageWithUsageError(t *testing.T) {
 		},
 		services: []string{"ec2", "vpc"},
 	}
-	quotasAndUsage, err := serviceQuotas.QuotasAndUsage()
+	quotasAndUsage, err := serviceQuotas.QuotasAndUsage(context.Background())
 
 	assert.True(t, errors.Is(err, expectedErr))
 	var checkErr *CheckError
@@ -97,7 +132,7 @@ func TestQuotasAndUsageWithOtherUsageCheckError(t *testing.T) {
 		isAwsChina:       true,
 		otherUsageChecks: []UsageCheck{&UsageCheckMock{err: expectedErr}},
 	}
-	quotasAndUsage, err := serviceQuotas.QuotasAndUsage()
+	quotasAndUsage, err := serviceQuotas.QuotasAndUsage(context.Background())
 
 	assert.True(t, errors.Is(err, expectedErr))
 	var checkErr *CheckError
@@ -161,7 +196,7 @@ func TestQuotasAndUsage(t *testing.T) {
 		},
 		services: []string{"ec2", "vpc"},
 	}
-	actualQuotasAndUsage, err := serviceQuotas.QuotasAndUsage()
+	actualQuotasAndUsage, err := serviceQuotas.QuotasAndUsage(context.Background())
 
 	expectedQuotasAndUsage := []QuotaUsage{
 		{
@@ -248,7 +283,7 @@ func TestQuotasAndUsageChina(t *testing.T) {
 			},
 		},
 	}
-	actualQuotasAndUsage, err := serviceQuotas.QuotasAndUsage()
+	actualQuotasAndUsage, err := serviceQuotas.QuotasAndUsage(context.Background())
 
 	// Service quotas are currently not supported in AWS china
 	expectedQuotasAndUsage := []QuotaUsage{
@@ -300,7 +335,7 @@ func TestQuotaUsageIdentifier(t *testing.T) {
 }
 
 func TestNewServiceQuotasWithInvalidRegion(t *testing.T) {
-	svcQuotas, err := NewServiceQuotas("asdasd", "someprofile")
+	svcQuotas, err := NewServiceQuotas(context.Background(), "asdasd", "someprofile")
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrInvalidRegion))
@@ -370,7 +405,7 @@ func TestQuotasForGlobalServiceRoutesToGlobalClient(t *testing.T) {
 		},
 		services: []string{"iam"},
 	}
-	actual, err := serviceQuotas.QuotasAndUsage()
+	actual, err := serviceQuotas.QuotasAndUsage(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, 0, regionalClient.timesCalled, "regional client must not be called for global services")

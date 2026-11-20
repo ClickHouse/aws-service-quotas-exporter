@@ -21,13 +21,13 @@ type VpcsPerRegionUsageCheck struct {
 }
 
 // Usage returns the number of VPCs in the region.
-func (c *VpcsPerRegionUsageCheck) Usage() ([]QuotaUsage, error) {
+func (c *VpcsPerRegionUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
 	numVpcs := 0
 
 	params := &ec2.DescribeVpcsInput{}
 	paginator := ec2.NewDescribeVpcsPaginator(c.client, params)
 	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(context.TODO())
+		page, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 		}
@@ -50,8 +50,8 @@ type EIPsPerRegionUsageCheck struct {
 }
 
 // Usage returns the number of EC2-VPC Elastic IPs allocated in the region.
-func (c *EIPsPerRegionUsageCheck) Usage() ([]QuotaUsage, error) {
-	output, err := c.client.DescribeAddresses(context.TODO(), &ec2.DescribeAddressesInput{})
+func (c *EIPsPerRegionUsageCheck) Usage(ctx context.Context) ([]QuotaUsage, error) {
+	output, err := c.client.DescribeAddresses(ctx, &ec2.DescribeAddressesInput{})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrFailedToGetUsage, err)
 	}
