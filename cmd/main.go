@@ -27,6 +27,7 @@ var opts struct {
 	EnableVpcsPerRegion      bool `long:"enable-vpcs-per-region" description:"Enable VPCs per region quota monitoring"`
 	EnableEIPsPerRegion      bool `long:"enable-eips-per-region" description:"Enable Elastic IPs per region quota monitoring"`
 	EnableNLBsPerRegion      bool `long:"enable-nlbs-per-region" description:"Enable Network Load Balancers per region quota monitoring"`
+	EnableNLBIPsPerAZ        bool `long:"enable-nlb-ips-per-az" description:"Enable monitoring of Network Load Balancer IPv4 addresses per Availability Zone"`
 	EnableIAMRolesPerAccount bool `long:"enable-iam-roles-per-account" description:"Enable IAM roles per account quota monitoring"`
 	EnableIAMPoliciesPerAccount bool `long:"enable-iam-policies-per-account" description:"Enable IAM customer managed policies per account quota monitoring"`
 }
@@ -45,6 +46,7 @@ func main() {
 		EnableVpcsPerRegionCheck:         opts.EnableVpcsPerRegion,
 		EnableEIPsPerRegionCheck:         opts.EnableEIPsPerRegion,
 		EnableNLBsPerRegionCheck:         opts.EnableNLBsPerRegion,
+		EnableNLBIPsPerAZCheck:           opts.EnableNLBIPsPerAZ,
 		EnableIAMRolesPerAccountCheck:    opts.EnableIAMRolesPerAccount,
 		EnableIAMPoliciesPerAccountCheck: opts.EnableIAMPoliciesPerAccount,
 	}

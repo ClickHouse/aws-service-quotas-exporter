@@ -108,6 +108,14 @@ aws_iam_policies_per_account_limit_total{region="us-east-1",resource="iam_polici
 aws_iam_policies_per_account_used_total{region="us-east-1",resource="iam_policies_per_account"} 47
 ```
 
+16. IPv4 addresses used by each Network Load Balancer, per Availability Zone (requires `--enable-nlb-ips-per-az`). A Network Load Balancer that does not preserve the client IP (PrivateLink traffic, or client IP preservation disabled) can open about 55,000 connections to a target from each of its addresses, so the addresses it uses set its source port capacity. There is one series, with the used value 1, for each private IPv4 address on the load balancer's network interfaces: the primary address (`primary="true"`) and any secondary ones from the `secondary_ips.auto_assigned.per_subnet` attribute. For the number of addresses in a zone, use `sum by (resource, availability_zone) (aws_ips_per_nlb_availability_zone_used_total)`. The limit is 8 for the zone (1 primary and up to 7 secondary) and is repeated on each series. `resource` is the load balancer's ID as in its ARN and its CloudWatch `LoadBalancer` dimension.
+```
+aws_ips_per_nlb_availability_zone_limit_total{availability_zone="us-east-1a",ip="10.0.1.23",primary="true",region="us-east-1",resource="net/my-nlb/0123456789abcdef"} 8
+aws_ips_per_nlb_availability_zone_limit_total{availability_zone="us-east-1a",ip="10.0.1.6",primary="false",region="us-east-1",resource="net/my-nlb/0123456789abcdef"} 8
+aws_ips_per_nlb_availability_zone_used_total{availability_zone="us-east-1a",ip="10.0.1.23",primary="true",region="us-east-1",resource="net/my-nlb/0123456789abcdef"} 1
+aws_ips_per_nlb_availability_zone_used_total{availability_zone="us-east-1a",ip="10.0.1.6",primary="false",region="us-east-1",resource="net/my-nlb/0123456789abcdef"} 1
+```
+
 ## Refresh behaviour and exporter health metrics
 
 The exporter waits `--refresh-period` seconds between refreshes. Each
@@ -132,7 +140,7 @@ The AWS Service Quotas requires permissions for the following actions
 to be able to run:
 
  * `ec2:DescribeSecurityGroups`
- * `ec2:DescribeNetworkInterfaces`
+ * `ec2:DescribeNetworkInterfaces` (also all that `--enable-nlb-ips-per-az` needs)
  * `ec2:DescribeInstances`
  * `ec2:DescribeSubnets`
  * `ec2:DescribeVpcEndpoints` (only when `--enable-vpc-endpoints` is used)
@@ -182,6 +190,7 @@ Example IAM policy
 | N/A        | --enable-vpcs-per-region | N/A   | Enable VPCs per region quota monitoring                                    |
 | N/A        | --enable-eips-per-region | N/A   | Enable Elastic IPs per region quota monitoring                             |
 | N/A        | --enable-nlbs-per-region | N/A   | Enable Network Load Balancers per region quota monitoring                  |
+| N/A        | --enable-nlb-ips-per-az | N/A    | Enable monitoring of Network Load Balancer IPv4 addresses per Availability Zone |
 | N/A        | --enable-iam-roles-per-account | N/A | Enable IAM roles per account quota monitoring                          |
 | N/A        | --enable-iam-policies-per-account | N/A | Enable IAM customer managed policies per account quota monitoring   |
 

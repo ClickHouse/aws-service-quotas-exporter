@@ -114,6 +114,9 @@ type QuotasOptions struct {
 	EnableEIPsPerRegionCheck bool
 	// EnableNLBsPerRegionCheck enables Network Load Balancers per region quota monitoring
 	EnableNLBsPerRegionCheck bool
+	// EnableNLBIPsPerAZCheck enables monitoring of the IPv4 addresses each
+	// Network Load Balancer has per Availability Zone
+	EnableNLBIPsPerAZCheck bool
 	// EnableIAMRolesPerAccountCheck enables IAM roles per account quota monitoring
 	EnableIAMRolesPerAccountCheck bool
 	// EnableIAMPoliciesPerAccountCheck enables IAM customer managed policies per account quota monitoring
@@ -168,6 +171,10 @@ func newUsageChecks(opts QuotasOptions, cfg aws.Config) (map[string]UsageCheck, 
 		&LambdaConcurrentExecutionsLimitCheck{lambdaClient},
 	}
 
+	if opts.EnableNLBIPsPerAZCheck {
+		otherUsageChecks = append(otherUsageChecks, &IPsPerNLBAvailabilityZoneUsageCheck{client: ec2Client})
+	}
+
 	return serviceQuotasUsageChecks, otherUsageChecks
 }
 
@@ -192,6 +199,15 @@ type QuotaUsage struct {
 
 	// Tags are the metadata associated with the resource in form of key, value pairs
 	Tags map[string]string
+
+	// Labels are extra labels set by the check. Unlike Tags, which
+	// come from AWS and are exported only when --include-aws-tag names
+	// them, Labels are always exported and are part of the usage's
+	// identity, so several usages can share a ResourceName (eg. one
+	// per address of a load balancer). A name must not be "region",
+	// "resource" or an included AWS tag, and all usages with the same
+	// Name must set the same names.
+	Labels map[string]string
 }
 
 // Identifier for the service quota. Either the resource name in case

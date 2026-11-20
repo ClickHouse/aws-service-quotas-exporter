@@ -350,3 +350,35 @@ aws_service_quotas_exporter_refresh_errors_total{check="list_service_quotas_ec2"
 	}
 	assert.InDelta(t, float64(exporter.lastRefreshSuccess.Unix()), lastSuccess, 1)
 }
+
+func TestCollectExportsUsageLabels(t *testing.T) {
+	nlbIPUsage := func(zone, ip, primary string) servicequotas.QuotaUsage {
+		return servicequotas.QuotaUsage{
+			Name:         "ips_per_nlb_availability_zone",
+			ResourceName: resourceName("net/ingress/aaa"),
+			Description:  "IPv4 addresses per Network Load Balancer Availability Zone",
+			Usage:        1,
+			Quota:        8,
+			Labels:       map[string]string{"availability_zone": zone, "ip": ip, "primary": primary},
+		}
+	}
+	quotasClient := &ServiceQuotasMock{quotas: []servicequotas.QuotaUsage{
+		nlbIPUsage("us-east-1a", "10.0.1.23", "true"),
+		nlbIPUsage("us-east-1a", "10.0.1.6", "false"),
+		nlbIPUsage("us-east-1b", "10.0.2.112", "true"),
+	}}
+	exporter := newTestExporter(quotasClient)
+	exporter.includedAWSTags = []string{"dummy-tag"}
+	exporter.createOrUpdateQuotasAndDescriptions(true)
+
+	expected := `
+# HELP aws_ips_per_nlb_availability_zone_used_total Used amount of IPv4 addresses per Network Load Balancer Availability Zone
+# TYPE aws_ips_per_nlb_availability_zone_used_total gauge
+aws_ips_per_nlb_availability_zone_used_total{availability_zone="us-east-1a",dummy_tag="",ip="10.0.1.23",primary="true",region="us-east-1",resource="net/ingress/aaa"} 1
+aws_ips_per_nlb_availability_zone_used_total{availability_zone="us-east-1a",dummy_tag="",ip="10.0.1.6",primary="false",region="us-east-1",resource="net/ingress/aaa"} 1
+aws_ips_per_nlb_availability_zone_used_total{availability_zone="us-east-1b",dummy_tag="",ip="10.0.2.112",primary="true",region="us-east-1",resource="net/ingress/aaa"} 1
+`
+	assert.NoError(t, testutil.CollectAndCompare(exporter, strings.NewReader(expected),
+		"aws_ips_per_nlb_availability_zone_used_total"))
+	assert.Len(t, exportedResources(t, exporter), 6)
+}
